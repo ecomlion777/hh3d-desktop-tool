@@ -1,10 +1,11 @@
 /**
- * GeneralSettingsView - App Settings, IPC Bridge Toggles & Backup
+ * GeneralSettingsView - App Settings, IPC Bridge Toggles, Storage Info & Backup
  */
 
 import React, { useState, useEffect } from 'react';
-import { Settings, Save, CheckCircle2, Radio, HardDrive, Download, Upload, Shield, Cpu, Info } from 'lucide-react';
-import { GeneralAppSettings, DesktopVersions } from '../../types';
+import { Settings, Save, CheckCircle2, Download, HardDrive, Info, FolderCheck, Database, FileCode } from 'lucide-react';
+import { GeneralAppSettings, DesktopVersions, DesktopStorageInfo } from '../../types';
+import { appBridge } from '../../services/appBridgeService';
 
 interface GeneralSettingsViewProps {
   settings: GeneralAppSettings;
@@ -25,16 +26,43 @@ export const GeneralSettingsView: React.FC<GeneralSettingsViewProps> = ({
   });
   const [isElectronEnv, setIsElectronEnv] = useState(false);
 
+  const [storageInfo, setStorageInfo] = useState<DesktopStorageInfo | null>(null);
+  const [storageLoading, setStorageLoading] = useState<boolean>(true);
+  const [storageError, setStorageError] = useState<string | null>(null);
+
   useEffect(() => {
-    if (typeof window !== 'undefined' && window.desktopBridge?.getVersions) {
-      window.desktopBridge.getVersions().then(v => {
+    if (appBridge.getVersions) {
+      appBridge.getVersions().then(v => {
         if (v) {
           setVersions(v);
-          setIsElectronEnv(true);
+          if (v.electronVersion && !v.electronVersion.includes('Simulated')) {
+            setIsElectronEnv(true);
+          }
         }
       }).catch(err => {
         console.warn('Could not fetch desktop versions:', err);
       });
+    }
+
+    if (appBridge.getStorageInfo) {
+      setStorageLoading(true);
+      appBridge.getStorageInfo()
+        .then(info => {
+          setStorageInfo(info);
+          setStorageError(null);
+          if (info && info.dataDirectory && info.dataDirectory !== 'Web LocalStorage (Browser Simulator)') {
+            setIsElectronEnv(true);
+          }
+        })
+        .catch(err => {
+          console.error('Failed to load storage info:', err);
+          setStorageError(err.message || 'Không thể đọc thông tin Local JSON Storage.');
+        })
+        .finally(() => {
+          setStorageLoading(false);
+        });
+    } else {
+      setStorageLoading(false);
     }
   }, []);
 
@@ -46,6 +74,16 @@ export const GeneralSettingsView: React.FC<GeneralSettingsViewProps> = ({
   };
 
   const handleExportBackup = () => {
+    if (isElectronEnv && storageInfo) {
+      alert(
+        `[Local JSON Storage - Phase 03A]\n\nDữ liệu thật của ứng dụng Electron đang được lưu trữ tự động tại:\n\n` +
+        `Thư mục: ${storageInfo.dataDirectory}\n` +
+        `Tên file: ${storageInfo.dataFile}\n\n` +
+        `Mọi thay đổi profile/nhóm được ghi tự động tức thì xuống đĩa đĩa đĩa.`
+      );
+      return;
+    }
+
     const backupData = {
       timestamp: new Date().toISOString(),
       profiles: localStorage.getItem('hh3d_desktop_profiles_v1'),
@@ -191,6 +229,68 @@ export const GeneralSettingsView: React.FC<GeneralSettingsViewProps> = ({
               <span>Lưu Tất Cả Cài Đặt</span>
             </button>
           </div>
+        </div>
+
+        {/* Local Storage Card (Phase 03A) */}
+        <div className="md:col-span-2 bg-slate-900 border border-slate-800 rounded-lg p-4 space-y-3">
+          <h3 className="font-bold text-slate-200 uppercase text-[11px] tracking-wider border-b border-slate-800 pb-2 text-cyan-400 flex items-center justify-between">
+            <span className="flex items-center gap-1.5">
+              <HardDrive className="w-4 h-4 text-cyan-400" />
+              <span>Cơ Sở Dữ Liệu JSON Cục Bộ (Local JSON Storage - Phase 03A)</span>
+            </span>
+            <span className={`px-2 py-0.5 rounded text-[10px] font-mono ${isElectronEnv ? 'bg-emerald-950 text-emerald-400 border border-emerald-800' : 'bg-amber-950 text-amber-400 border border-amber-800'}`}>
+              {isElectronEnv ? 'Electron Main Process File Storage' : 'Web Browser Simulator Mode (localStorage)'}
+            </span>
+          </h3>
+
+          {storageLoading ? (
+            <div className="p-4 text-center text-slate-400 animate-pulse">Đang tải thông tin Local Storage...</div>
+          ) : storageError ? (
+            <div className="p-3 bg-red-950/50 border border-red-800 rounded text-red-300 font-mono text-[11px]">
+              Lỗi Local Storage: {storageError}
+            </div>
+          ) : storageInfo ? (
+            <div className="space-y-3 pt-1">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div className="bg-slate-950 p-3 rounded border border-slate-800">
+                  <span className="text-[10px] text-slate-500 uppercase font-semibold flex items-center gap-1 mb-1">
+                    <FolderCheck className="w-3.5 h-3.5 text-cyan-400" />
+                    <span>Data Directory</span>
+                  </span>
+                  <span className="font-mono text-xs text-slate-300 break-all">{storageInfo.dataDirectory}</span>
+                </div>
+                <div className="bg-slate-950 p-3 rounded border border-slate-800">
+                  <span className="text-[10px] text-slate-500 uppercase font-semibold flex items-center gap-1 mb-1">
+                    <FileCode className="w-3.5 h-3.5 text-cyan-400" />
+                    <span>Data File</span>
+                  </span>
+                  <span className="font-mono text-xs text-slate-300 break-all">{storageInfo.dataFile}</span>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-3 gap-3">
+                <div className="bg-slate-950 p-2.5 rounded border border-slate-800">
+                  <span className="text-[10px] text-slate-500 uppercase font-semibold block">Schema Version</span>
+                  <span className="font-mono font-bold text-xs sm:text-sm text-cyan-400">v{storageInfo.schemaVersion}</span>
+                </div>
+                <div className="bg-slate-950 p-2.5 rounded border border-slate-800">
+                  <span className="text-[10px] text-slate-500 uppercase font-semibold block">Profile Count</span>
+                  <span className="font-mono font-bold text-xs sm:text-sm text-emerald-400">{storageInfo.profileCount} Profiles</span>
+                </div>
+                <div className="bg-slate-950 p-2.5 rounded border border-slate-800">
+                  <span className="text-[10px] text-slate-500 uppercase font-semibold block">Group Count</span>
+                  <span className="font-mono font-bold text-xs sm:text-sm text-blue-400">{storageInfo.groupCount} Groups</span>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="p-3 bg-slate-950 rounded border border-slate-800 text-slate-400 text-[11px] space-y-1">
+              <p className="font-medium text-slate-300">Đang chạy ở chế độ Web Preview Browser (Simulated Storage)</p>
+              <p className="text-slate-500">
+                Khi khởi chạy dưới dạng ứng dụng Electron Desktop Shell (`npm run electron:dev` hoặc `npm run electron:start`), dữ liệu profile và nhóm sẽ tự động được ghi an toàn xuống file <code className="text-cyan-400">app-data.json</code> tại thư mục <code className="text-cyan-400">%APPDATA%/userData/hh3d-data/</code>.
+              </p>
+            </div>
+          )}
         </div>
 
         {/* Full Width Card: App & System Info */}

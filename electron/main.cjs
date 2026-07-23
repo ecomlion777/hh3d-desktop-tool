@@ -1,6 +1,10 @@
 const { app, BrowserWindow, ipcMain } = require('electron');
 const path = require('path');
 
+const JsonDatabase = require('./storage/JsonDatabase.cjs');
+const ProfileRepository = require('./storage/ProfileRepository.cjs');
+const GroupRepository = require('./storage/GroupRepository.cjs');
+
 // Chỉ cho phép chạy một phiên bản ứng dụng.
 const gotTheLock = app.requestSingleInstanceLock();
 
@@ -8,6 +12,85 @@ if (!gotTheLock) {
   app.quit();
 } else {
   let mainWindow = null;
+  let databaseReady = false;
+  let databaseInitError = null;
+
+  // Khởi tạo Database & Repositories
+  const db = new JsonDatabase();
+  const profileRepo = new ProfileRepository(db);
+  const groupRepo = new GroupRepository(db);
+
+  function ensureDatabaseReady() {
+    if (!databaseReady) {
+      throw new Error(
+        `Local JSON Database chưa sẵn sàng: ${
+          databaseInitError?.message || 'Unknown initialization error'
+        }`
+      );
+    }
+  }
+
+  /**
+   * Register IPC Handlers for Storage, Profiles, and Groups
+   */
+  function registerIpcHandlers() {
+    ipcMain.handle('app:get-versions', () => {
+      return {
+        appVersion: app.getVersion(),
+        electronVersion: process.versions.electron || 'unknown',
+        chromiumVersion: process.versions.chrome || 'unknown',
+        nodeVersion: process.versions.node || 'unknown',
+      };
+    });
+
+    // Storage Info
+    ipcMain.handle('storage:get-info', async () => {
+      ensureDatabaseReady();
+      return db.getStorageInfo();
+    });
+
+    // Profiles IPC
+    ipcMain.handle('profiles:list', async () => {
+      ensureDatabaseReady();
+      return await profileRepo.listProfiles();
+    });
+
+    ipcMain.handle('profiles:create', async (_event, profileData) => {
+      ensureDatabaseReady();
+      return await profileRepo.createProfile(profileData);
+    });
+
+    ipcMain.handle('profiles:update', async (_event, profileId, changes) => {
+      ensureDatabaseReady();
+      return await profileRepo.updateProfile(profileId, changes);
+    });
+
+    ipcMain.handle('profiles:delete', async (_event, profileId) => {
+      ensureDatabaseReady();
+      return await profileRepo.deleteProfile(profileId);
+    });
+
+    // Groups IPC
+    ipcMain.handle('groups:list', async () => {
+      ensureDatabaseReady();
+      return await groupRepo.listGroups();
+    });
+
+    ipcMain.handle('groups:create', async (_event, groupData) => {
+      ensureDatabaseReady();
+      return await groupRepo.createGroup(groupData);
+    });
+
+    ipcMain.handle('groups:update', async (_event, groupId, changes) => {
+      ensureDatabaseReady();
+      return await groupRepo.updateGroup(groupId, changes);
+    });
+
+    ipcMain.handle('groups:delete', async (_event, groupId) => {
+      ensureDatabaseReady();
+      return await groupRepo.deleteGroup(groupId);
+    });
+  }
 
   /**
    * Tạo cửa sổ chính của HH3D Desktop Tool.
@@ -100,18 +183,6 @@ if (!gotTheLock) {
     });
   }
 
-  ipcMain.handle('app:get-versions', () => {
-    return {
-      appVersion: app.getVersion(),
-      electronVersion:
-        process.versions.electron || 'unknown',
-      chromiumVersion:
-        process.versions.chrome || 'unknown',
-      nodeVersion:
-        process.versions.node || 'unknown',
-    };
-  });
-
   app.on('second-instance', () => {
     if (!mainWindow) {
       return;
@@ -125,7 +196,17 @@ if (!gotTheLock) {
     mainWindow.focus();
   });
 
-  app.whenReady().then(() => {
+  app.whenReady().then(async () => {
+    try {
+      await db.init();
+      databaseReady = true;
+    } catch (err) {
+      databaseReady = false;
+      databaseInitError = err;
+      console.error('[Electron Main] Database init failed:', err);
+    }
+
+    registerIpcHandlers();
     createWindow();
 
     app.on('activate', () => {

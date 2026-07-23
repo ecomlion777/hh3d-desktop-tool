@@ -206,10 +206,21 @@ export function useAppBridge() {
   const createGroup = async (data: { name: string; description: string; color: string }) => {
     if (appBridge.createGroup) {
       await appBridge.createGroup(data);
-      if (appBridge.listGroups) {
-        const gList = await appBridge.listGroups();
-        setGroups(gList);
-      }
+      await refreshData();
+    }
+  };
+
+  const updateGroup = async (groupId: string, changes: Partial<GroupItem>) => {
+    if (appBridge.updateGroup) {
+      await appBridge.updateGroup(groupId, changes);
+      await refreshData();
+    }
+  };
+
+  const deleteGroup = async (groupId: string) => {
+    if (appBridge.deleteGroup) {
+      await appBridge.deleteGroup(groupId);
+      await refreshData();
     }
   };
 
@@ -335,6 +346,8 @@ export function useAppBridge() {
     runGroup,
     stopGroup,
     createGroup,
+    updateGroup,
+    deleteGroup,
     createBatch,
     updateBatch,
     deleteBatch,

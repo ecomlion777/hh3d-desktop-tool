@@ -2,7 +2,7 @@
  * AddProfileModal - Add Single or Bulk Game Profiles
  */
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { X, UserPlus, FileText, CheckCircle2, Shield, AlertCircle } from 'lucide-react';
 import { Profile, GroupItem, ProxyItem } from '../../types';
 
@@ -12,8 +12,8 @@ interface AddProfileModalProps {
   groups: GroupItem[];
   proxies: ProxyItem[];
   existingProfiles?: Profile[];
-  onSubmitSingle: (data: { characterName: string; uid: string; group: string; proxyId: string }) => void;
-  onSubmitBulk: (rawLines: string[], group: string, proxyId: string) => void;
+  onSubmitSingle: (data: { characterName: string; uid: string; group: string; groupId?: string; proxyId: string }) => Promise<void>;
+  onSubmitBulk: (rawLines: string[], group: string, proxyId: string, groupId?: string) => Promise<void>;
 }
 
 export const AddProfileModal: React.FC<AddProfileModalProps> = ({
@@ -25,18 +25,32 @@ export const AddProfileModal: React.FC<AddProfileModalProps> = ({
   onSubmitSingle,
   onSubmitBulk
 }) => {
-  if (!isOpen) return null;
-
   const [mode, setMode] = useState<'single' | 'bulk'>('single');
   const [characterName, setCharacterName] = useState('');
   const [uid, setUid] = useState('');
-  const [selectedGroup, setSelectedGroup] = useState(groups[0]?.name || 'Nhóm Chính (Main)');
+  const [selectedGroupId, setSelectedGroupId] = useState(groups[0]?.id || '');
   const [selectedProxyId, setSelectedProxyId] = useState(proxies[0]?.id || '');
   const [bulkText, setBulkText] = useState('');
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const handleSingleSubmit = (e: React.FormEvent) => {
+  useEffect(() => {
+    if (isOpen) {
+      setErrorMsg(null);
+      if (!selectedGroupId || !groups.some(g => g.id === selectedGroupId)) {
+        setSelectedGroupId(groups[0]?.id || '');
+      }
+      if (!selectedProxyId || !proxies.some(p => p.id === selectedProxyId)) {
+        setSelectedProxyId(proxies[0]?.id || '');
+      }
+    }
+  }, [isOpen, groups, proxies]);
+
+  if (!isOpen) return null;
+
+  const handleSingleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isSubmitting) return;
     setErrorMsg(null);
 
     const cleanUid = uid.trim();
@@ -51,17 +65,28 @@ export const AddProfileModal: React.FC<AddProfileModalProps> = ({
       return;
     }
 
-    onSubmitSingle({
-      characterName: cleanName,
-      uid: cleanUid,
-      group: selectedGroup,
-      proxyId: selectedProxyId
-    });
-    onClose();
+    const targetGroup = groups.find(g => g.id === selectedGroupId);
+
+    try {
+      setIsSubmitting(true);
+      await onSubmitSingle({
+        characterName: cleanName,
+        uid: cleanUid,
+        groupId: selectedGroupId,
+        group: targetGroup ? targetGroup.name : (groups[0]?.name || 'Nhóm Chính (Main)'),
+        proxyId: selectedProxyId
+      });
+      onClose();
+    } catch (error: any) {
+      setErrorMsg(error?.message || 'Không thể thêm profile.');
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
-  const handleBulkSubmit = (e: React.FormEvent) => {
+  const handleBulkSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isSubmitting) return;
     setErrorMsg(null);
 
     const lines = bulkText.split('\n').map(l => l.trim()).filter(l => l.length > 0);
@@ -80,8 +105,22 @@ export const AddProfileModal: React.FC<AddProfileModalProps> = ({
       }
     }
 
-    onSubmitBulk(lines, selectedGroup, selectedProxyId);
-    onClose();
+    const targetGroup = groups.find(g => g.id === selectedGroupId);
+
+    try {
+      setIsSubmitting(true);
+      await onSubmitBulk(
+        lines,
+        targetGroup ? targetGroup.name : (groups[0]?.name || 'Nhóm Chính (Main)'),
+        selectedProxyId,
+        selectedGroupId
+      );
+      onClose();
+    } catch (error: any) {
+      setErrorMsg(error?.message || 'Không thể nhập hàng loạt profile.');
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -166,12 +205,12 @@ export const AddProfileModal: React.FC<AddProfileModalProps> = ({
               <div>
                 <label className="block text-slate-400 font-medium mb-1">Chọn Nhóm</label>
                 <select
-                  value={selectedGroup}
-                  onChange={e => setSelectedGroup(e.target.value)}
+                  value={selectedGroupId}
+                  onChange={e => setSelectedGroupId(e.target.value)}
                   className="w-full bg-slate-950 border border-slate-800 rounded px-3 py-2 text-slate-200 focus:outline-none focus:border-emerald-500"
                 >
                   {groups.map(g => (
-                    <option key={g.id} value={g.name}>{g.name}</option>
+                    <option key={g.id} value={g.id}>{g.name}</option>
                   ))}
                 </select>
               </div>
@@ -194,16 +233,18 @@ export const AddProfileModal: React.FC<AddProfileModalProps> = ({
               <button
                 type="button"
                 onClick={onClose}
-                className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded font-medium transition"
+                disabled={isSubmitting}
+                className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded font-medium transition disabled:opacity-50"
               >
                 Hủy
               </button>
               <button
                 type="submit"
-                className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded font-medium transition flex items-center gap-1.5"
+                disabled={isSubmitting}
+                className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded font-medium transition flex items-center gap-1.5 disabled:opacity-50"
               >
                 <CheckCircle2 className="w-4 h-4" />
-                <span>Thêm Profile</span>
+                <span>{isSubmitting ? 'Đang Lưu...' : 'Thêm Profile'}</span>
               </button>
             </div>
           </form>
@@ -227,12 +268,12 @@ export const AddProfileModal: React.FC<AddProfileModalProps> = ({
               <div>
                 <label className="block text-slate-400 font-medium mb-1">Chọn Nhóm Gán Nhập</label>
                 <select
-                  value={selectedGroup}
-                  onChange={e => setSelectedGroup(e.target.value)}
+                  value={selectedGroupId}
+                  onChange={e => setSelectedGroupId(e.target.value)}
                   className="w-full bg-slate-950 border border-slate-800 rounded px-3 py-2 text-slate-200 focus:outline-none focus:border-emerald-500"
                 >
                   {groups.map(g => (
-                    <option key={g.id} value={g.name}>{g.name}</option>
+                    <option key={g.id} value={g.id}>{g.name}</option>
                   ))}
                 </select>
               </div>
@@ -255,16 +296,18 @@ export const AddProfileModal: React.FC<AddProfileModalProps> = ({
               <button
                 type="button"
                 onClick={onClose}
-                className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded font-medium transition"
+                disabled={isSubmitting}
+                className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded font-medium transition disabled:opacity-50"
               >
                 Hủy
               </button>
               <button
                 type="submit"
-                className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded font-medium transition flex items-center gap-1.5"
+                disabled={isSubmitting}
+                className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded font-medium transition flex items-center gap-1.5 disabled:opacity-50"
               >
                 <CheckCircle2 className="w-4 h-4" />
-                <span>Nhập Hàng Loạt</span>
+                <span>{isSubmitting ? 'Đang Nhập...' : 'Nhập Hàng Loạt'}</span>
               </button>
             </div>
           </form>

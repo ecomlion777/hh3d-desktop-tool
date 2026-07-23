@@ -2,13 +2,15 @@
  * AddGroupModal - Create or Edit Profile Group
  */
 
-import React, { useState } from 'react';
-import { X, FolderPlus, CheckCircle2 } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { X, FolderPlus, CheckCircle2, Edit2, AlertCircle } from 'lucide-react';
+import { GroupItem } from '../../types';
 
 interface AddGroupModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onSubmit: (data: { name: string; description: string; color: string }) => void;
+  onSubmit: (data: { name: string; description: string; color: string }) => Promise<void>;
+  groupToEdit?: GroupItem | null;
 }
 
 const PRESET_COLORS = ['#10b981', '#3b82f6', '#8b5cf6', '#f59e0b', '#ec4899', '#06b6d4', '#ef4444', '#64748b'];
@@ -16,28 +18,54 @@ const PRESET_COLORS = ['#10b981', '#3b82f6', '#8b5cf6', '#f59e0b', '#ec4899', '#
 export const AddGroupModal: React.FC<AddGroupModalProps> = ({
   isOpen,
   onClose,
-  onSubmit
+  onSubmit,
+  groupToEdit
 }) => {
-  if (!isOpen) return null;
-
   const [groupName, setGroupName] = useState('');
   const [description, setDescription] = useState('');
   const [color, setColor] = useState('#3b82f6');
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  useEffect(() => {
+    if (groupToEdit) {
+      setGroupName(groupToEdit.name || '');
+      setDescription(groupToEdit.description || '');
+      setColor(groupToEdit.color || '#3b82f6');
+    } else {
+      setGroupName('');
+      setDescription('');
+      setColor('#3b82f6');
+    }
+    setErrorMsg(null);
+  }, [groupToEdit, isOpen]);
+
+  if (!isOpen) return null;
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!groupName.trim()) {
-      alert('Vui lòng nhập tên nhóm!');
+    if (isSubmitting) return;
+    setErrorMsg(null);
+
+    const cleanName = groupName.trim();
+    if (!cleanName) {
+      setErrorMsg('Vui lòng nhập tên nhóm!');
       return;
     }
-    onSubmit({
-      name: groupName.trim(),
-      description: description.trim(),
-      color
-    });
-    setGroupName('');
-    setDescription('');
-    onClose();
+
+    try {
+      setIsSubmitting(true);
+      await onSubmit({
+        name: cleanName,
+        description: description.trim(),
+        color
+      });
+      onClose();
+    } catch (error: any) {
+      setErrorMsg(error?.message || 'Không thể lưu thông tin nhóm.');
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -47,8 +75,10 @@ export const AddGroupModal: React.FC<AddGroupModalProps> = ({
         {/* Header */}
         <div className="bg-slate-950 px-4 py-3 border-b border-slate-800 flex items-center justify-between">
           <div className="flex items-center space-x-2">
-            <FolderPlus className="w-4 h-4 text-cyan-400" />
-            <h3 className="font-bold text-sm text-slate-100">Thêm Nhóm Profile Mới</h3>
+            {groupToEdit ? <Edit2 className="w-4 h-4 text-cyan-400" /> : <FolderPlus className="w-4 h-4 text-cyan-400" />}
+            <h3 className="font-bold text-sm text-slate-100">
+              {groupToEdit ? 'Chỉnh Sửa Nhóm Profile' : 'Thêm Nhóm Profile Mới'}
+            </h3>
           </div>
           <button
             onClick={onClose}
@@ -60,6 +90,13 @@ export const AddGroupModal: React.FC<AddGroupModalProps> = ({
 
         {/* Form Body */}
         <form onSubmit={handleSubmit} className="p-4 space-y-4 text-xs">
+          {errorMsg && (
+            <div className="p-2.5 rounded bg-rose-950/80 border border-rose-800 text-rose-300 flex items-center gap-2">
+              <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
+              <span>{errorMsg}</span>
+            </div>
+          )}
+
           <div>
             <label className="block text-slate-400 font-medium mb-1">Tên Nhóm *</label>
             <input
@@ -102,16 +139,18 @@ export const AddGroupModal: React.FC<AddGroupModalProps> = ({
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded font-medium transition"
+              disabled={isSubmitting}
+              className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded font-medium transition disabled:opacity-50"
             >
               Hủy
             </button>
             <button
               type="submit"
-              className="px-4 py-2 bg-cyan-600 hover:bg-cyan-500 text-white rounded font-medium transition flex items-center gap-1.5"
+              disabled={isSubmitting}
+              className="px-4 py-2 bg-cyan-600 hover:bg-cyan-500 text-white rounded font-medium transition flex items-center gap-1.5 disabled:opacity-50"
             >
               <CheckCircle2 className="w-4 h-4" />
-              <span>Tạo Nhóm</span>
+              <span>{isSubmitting ? 'Đang Lưu...' : (groupToEdit ? 'Lưu Thay Đổi' : 'Tạo Nhóm')}</span>
             </button>
           </div>
         </form>

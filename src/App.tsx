@@ -3,7 +3,7 @@
  */
 
 import React, { useState } from 'react';
-import { ViewTab, Profile } from './types';
+import { ViewTab, Profile, GroupItem } from './types';
 import { useAppBridge } from './hooks';
 
 import { AppHeader } from './components/layout/AppHeader';
@@ -57,6 +57,8 @@ export default function App() {
     runGroup,
     stopGroup,
     createGroup,
+    updateGroup,
+    deleteGroup,
     createBatch,
     updateBatch,
     deleteBatch,
@@ -77,8 +79,35 @@ export default function App() {
   // Modals state
   const [isAddProfileOpen, setIsAddProfileOpen] = useState(false);
   const [isAddGroupOpen, setIsAddGroupOpen] = useState(false);
+  const [editingGroup, setEditingGroup] = useState<GroupItem | null>(null);
   const [isAddProxyOpen, setIsAddProxyOpen] = useState(false);
   const [miniBrowserProfile, setMiniBrowserProfile] = useState<Profile | null>(null);
+
+  // Group Handlers
+  const handleOpenAddGroup = () => {
+    setEditingGroup(null);
+    setIsAddGroupOpen(true);
+  };
+
+  const handleOpenEditGroup = (group: GroupItem) => {
+    setEditingGroup(group);
+    setIsAddGroupOpen(true);
+  };
+
+  const handleGroupSubmit = async (data: { name: string; description: string; color: string }) => {
+    if (editingGroup) {
+      await updateGroup(editingGroup.id, data);
+    } else {
+      await createGroup(data);
+    }
+    setEditingGroup(null);
+  };
+
+  const handleDeleteGroup = async (group: GroupItem) => {
+    if (window.confirm(`Bạn có chắc chắn muốn xóa nhóm "${group.name}"? Các profile thuộc nhóm này sẽ được chuyển sang "Chưa Phân Nhóm".`)) {
+      await deleteGroup(group.id);
+    }
+  };
 
   // Group Handlers
   const handleRunSelectedGroup = async () => {
@@ -101,11 +130,12 @@ export default function App() {
     }
   };
 
-  const handleAddSingleProfile = async (data: { characterName: string; uid: string; group: string; proxyId: string }) => {
+  const handleAddSingleProfile = async (data: { characterName: string; uid: string; group: string; groupId?: string; proxyId: string }) => {
     const px = proxies.find(p => p.id === data.proxyId) || proxies[0];
     await createProfile({
       characterName: data.characterName,
       uid: data.uid,
+      groupId: data.groupId,
       group: data.group,
       proxyId: px ? px.id : 'proxy_1',
       proxyAddress: px ? px.ipPort : '103.142.10.100:8080',
@@ -117,7 +147,7 @@ export default function App() {
     });
   };
 
-  const handleAddBulkProfiles = async (lines: string[], groupName: string, proxyId: string) => {
+  const handleAddBulkProfiles = async (lines: string[], groupName: string, proxyId: string, groupId?: string) => {
     const px = proxies.find(p => p.id === proxyId) || proxies[0];
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i].trim();
@@ -129,6 +159,7 @@ export default function App() {
       await createProfile({
         characterName: nameVal,
         uid: uidVal,
+        groupId: groupId,
         group: groupName,
         proxyId: px ? px.id : 'proxy_1',
         proxyAddress: px ? px.ipPort : '103.142.10.100:8080',
@@ -155,7 +186,7 @@ export default function App() {
         currentTab={currentTab}
         onSelectTab={setCurrentTab}
         onOpenAddProfile={() => setIsAddProfileOpen(true)}
-        onOpenAddGroup={() => setIsAddGroupOpen(true)}
+        onOpenAddGroup={handleOpenAddGroup}
         onRunSelectedGroup={handleRunSelectedGroup}
         onStopSelectedGroup={handleStopSelectedGroup}
         onRefreshData={refreshData}
@@ -178,7 +209,7 @@ export default function App() {
           groups={groups}
           selectedGroup={selectedGroup}
           onSelectGroup={setSelectedGroup}
-          onOpenAddGroup={() => setIsAddGroupOpen(true)}
+          onOpenAddGroup={handleOpenAddGroup}
           systemStats={systemStats}
           totalProfilesCount={profiles.length}
         />
@@ -195,6 +226,8 @@ export default function App() {
               onRunGroup={runGroup}
               onStopGroup={stopGroup}
               onOpenMiniBrowser={(p) => setMiniBrowserProfile(p)}
+              onEditGroup={handleOpenEditGroup}
+              onDeleteGroup={handleDeleteGroup}
             />
           )}
 
@@ -308,8 +341,12 @@ export default function App() {
 
       <AddGroupModal
         isOpen={isAddGroupOpen}
-        onClose={() => setIsAddGroupOpen(false)}
-        onSubmit={createGroup}
+        onClose={() => {
+          setIsAddGroupOpen(false);
+          setEditingGroup(null);
+        }}
+        onSubmit={handleGroupSubmit}
+        groupToEdit={editingGroup}
       />
 
       <ProxyEditModal

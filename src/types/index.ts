@@ -59,6 +59,8 @@ export interface AppBridge {
   // Groups Management
   listGroups?(): Promise<GroupItem[]>;
   createGroup?(group: { name: string; description: string; color: string }): Promise<GroupItem>;
+  updateGroup?(groupId: string, changes: Partial<GroupItem>): Promise<GroupItem>;
+  deleteGroup?(groupId: string): Promise<boolean>;
   runGroup?(groupName: string): Promise<boolean>;
   stopGroup?(groupName: string): Promise<boolean>;
 
@@ -68,6 +70,8 @@ export interface AppBridge {
   getGeneralSettings?(): Promise<GeneralAppSettings>;
   saveGeneralSettings?(settings: GeneralAppSettings): Promise<boolean>;
   getSystemStats?(): Promise<SystemStats>;
+  getStorageInfo?(): Promise<import('./electron').DesktopStorageInfo | null>;
+  getVersions?(): Promise<import('./electron').DesktopVersions | null>;
 
   // Event Listener Subscriptions
   onProfilesUpdated?(callback: (profiles: Profile[]) => void): () => void;

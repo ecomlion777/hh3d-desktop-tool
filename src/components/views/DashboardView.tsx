@@ -15,7 +15,9 @@ import {
   Terminal,
   ArrowUpRight,
   Sparkles,
-  Zap
+  Zap,
+  Edit2,
+  Trash2
 } from 'lucide-react';
 import { Profile, GroupItem, LogEntry, SystemStats, ViewTab } from '../../types';
 
@@ -28,6 +30,8 @@ interface DashboardViewProps {
   onRunGroup: (groupName: string) => void;
   onStopGroup: (groupName: string) => void;
   onOpenMiniBrowser: (profile: Profile) => void;
+  onEditGroup?: (group: GroupItem) => void;
+  onDeleteGroup?: (group: GroupItem) => void;
 }
 
 export const DashboardView: React.FC<DashboardViewProps> = ({
@@ -38,7 +42,9 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   onNavigate,
   onRunGroup,
   onStopGroup,
-  onOpenMiniBrowser
+  onOpenMiniBrowser,
+  onEditGroup,
+  onDeleteGroup
 }) => {
   const total = profiles.length;
   const running = profiles.filter(p => p.status === 'running').length;
@@ -191,19 +197,37 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                   </div>
 
                   {/* Group Action Buttons */}
-                  <div className="flex items-center space-x-2 shrink-0">
+                  <div className="flex items-center space-x-1.5 shrink-0">
                     <button
                       onClick={() => onRunGroup(group.name)}
-                      className="px-2.5 py-1 bg-blue-600/20 text-blue-300 border border-blue-500/30 hover:bg-blue-600 hover:text-white rounded text-xs font-medium transition"
+                      className="px-2 py-1 bg-blue-600/20 text-blue-300 border border-blue-500/30 hover:bg-blue-600 hover:text-white rounded text-xs font-medium transition"
                     >
-                      Chạy Nhóm
+                      Chạy
                     </button>
                     <button
                       onClick={() => onStopGroup(group.name)}
-                      className="px-2.5 py-1 bg-slate-800 text-slate-400 border border-slate-700 hover:bg-rose-950 hover:text-rose-300 rounded text-xs font-medium transition"
+                      className="px-2 py-1 bg-slate-800 text-slate-400 border border-slate-700 hover:bg-rose-950 hover:text-rose-300 rounded text-xs font-medium transition"
                     >
                       Dừng
                     </button>
+                    {onEditGroup && (
+                      <button
+                        onClick={() => onEditGroup(group)}
+                        className="p-1 bg-slate-800 text-slate-300 hover:bg-slate-700 hover:text-cyan-400 rounded transition"
+                        title="Chỉnh Sửa Nhóm"
+                      >
+                        <Edit2 className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                    {onDeleteGroup && (
+                      <button
+                        onClick={() => onDeleteGroup(group)}
+                        className="p-1 bg-slate-800 text-slate-400 hover:bg-rose-900/60 hover:text-rose-300 rounded transition"
+                        title="Xóa Nhóm"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    )}
                   </div>
                 </div>
               );

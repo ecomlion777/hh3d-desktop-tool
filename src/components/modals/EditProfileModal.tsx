@@ -33,23 +33,25 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({
   existingProfiles,
   onSubmit
 }) => {
-  if (!isOpen || !profile) return null;
-
   const [characterName, setCharacterName] = useState('');
   const [uid, setUid] = useState('');
-  const [selectedGroup, setSelectedGroup] = useState('');
+  const [selectedGroupId, setSelectedGroupId] = useState('');
   const [selectedProxyId, setSelectedProxyId] = useState('');
   const [level, setLevel] = useState<number>(70);
   const [stamina, setStamina] = useState<number>(100);
   const [enabledModules, setEnabledModules] = useState<string[]>([]);
   const [notes, setNotes] = useState('');
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
     if (profile) {
       setCharacterName(profile.characterName || profile.displayName || '');
       setUid(profile.uid || '');
-      setSelectedGroup(profile.group || groups[0]?.name || 'Nhóm Chính (Main)');
+      
+      const initGroupId = profile.groupId || groups.find(g => g.name === profile.group)?.id || groups[0]?.id || '';
+      setSelectedGroupId(initGroupId);
+
       setSelectedProxyId(profile.proxyId || proxies[0]?.id || '');
       setLevel(profile.level || 70);
       setStamina(profile.stamina || 100);
@@ -59,6 +61,8 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({
     }
   }, [profile, groups, proxies]);
 
+  if (!isOpen || !profile) return null;
+
   const handleToggleModule = (code: string) => {
     setEnabledModules(prev =>
       prev.includes(code) ? prev.filter(c => c !== code) : [...prev, code]
@@ -67,6 +71,7 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isSubmitting) return;
     setErrorMsg(null);
 
     // Validate UID not empty
@@ -88,12 +93,16 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({
     const pxAddress = px ? px.ipPort || `${px.host}:${px.port}` : profile.proxyAddress;
     const pxIp = px ? px.host || px.ipPort?.split(':')[0] : profile.currentIp;
 
+    const targetGroup = groups.find(g => g.id === selectedGroupId);
+
     try {
+      setIsSubmitting(true);
       await onSubmit(profile.id, {
         characterName: cleanName,
         displayName: cleanName,
         uid: cleanUid,
-        group: selectedGroup,
+        groupId: selectedGroupId,
+        group: targetGroup ? targetGroup.name : 'Chưa Phân Nhóm',
         proxyId: selectedProxyId,
         proxyAddress: pxAddress,
         currentIp: pxIp,
@@ -105,6 +114,8 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({
       onClose();
     } catch (err: any) {
       setErrorMsg(err?.message || 'Có lỗi xảy ra khi cập nhật profile.');
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -173,12 +184,12 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({
             <div>
               <label className="block text-slate-400 font-medium mb-1">Nhóm Profile</label>
               <select
-                value={selectedGroup}
-                onChange={e => setSelectedGroup(e.target.value)}
+                value={selectedGroupId}
+                onChange={e => setSelectedGroupId(e.target.value)}
                 className="w-full bg-slate-950 border border-slate-800 rounded px-3 py-1.5 text-slate-200 focus:outline-none focus:border-cyan-500"
               >
                 {groups.map(g => (
-                  <option key={g.id} value={g.name}>{g.name}</option>
+                  <option key={g.id} value={g.id}>{g.name}</option>
                 ))}
               </select>
             </div>
@@ -268,16 +279,18 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded font-medium transition"
+              disabled={isSubmitting}
+              className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded font-medium transition disabled:opacity-50"
             >
               Hủy
             </button>
             <button
               type="submit"
-              className="px-4 py-2 bg-cyan-600 hover:bg-cyan-500 text-white rounded font-medium transition flex items-center gap-1.5 shadow-lg shadow-cyan-900/30"
+              disabled={isSubmitting}
+              className="px-4 py-2 bg-cyan-600 hover:bg-cyan-500 text-white rounded font-medium transition flex items-center gap-1.5 shadow-lg shadow-cyan-900/30 disabled:opacity-50"
             >
               <Save className="w-4 h-4" />
-              <span>Lưu Thay Đổi</span>
+              <span>{isSubmitting ? 'Đang Lưu...' : 'Lưu Thay Đổi'}</span>
             </button>
           </div>
         </form>

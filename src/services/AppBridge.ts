@@ -18,6 +18,8 @@ import {
   SystemStats
 } from '../types';
 
+import { DesktopStorageInfo, DesktopVersions } from '../types/electron';
+
 import {
   generateInitialProxies,
   generateInitialProfiles,
@@ -927,6 +929,36 @@ export class MockAppBridge implements AppBridge {
     return newGroup;
   }
 
+  async updateGroup(groupId: string, changes: Partial<GroupItem>): Promise<GroupItem> {
+    const index = this.groups.findIndex(g => g.id === groupId);
+    if (index === -1) throw new Error(`Group ${groupId} not found`);
+    const updated = { ...this.groups[index], ...changes };
+    this.groups[index] = updated;
+    if (changes.name) {
+      this.profiles = this.profiles.map(p => p.groupId === groupId ? { ...p, group: changes.name } : p);
+      this.persistProfiles();
+    }
+    try {
+      localStorage.setItem(STORAGE_KEYS.GROUPS, JSON.stringify(this.groups));
+    } catch (e) {}
+    this.addLogMessage('info', 'GROUP_MANAGER', `Cập nhật nhóm: ${updated.name}`);
+    return updated;
+  }
+
+  async deleteGroup(groupId: string): Promise<boolean> {
+    const groupToDelete = this.groups.find(g => g.id === groupId);
+    this.groups = this.groups.filter(g => g.id !== groupId);
+    this.profiles = this.profiles.map(p => p.groupId === groupId ? { ...p, groupId: null as any, group: 'Chưa Phân Nhóm' } : p);
+    this.persistProfiles();
+    try {
+      localStorage.setItem(STORAGE_KEYS.GROUPS, JSON.stringify(this.groups));
+    } catch (e) {}
+    if (groupToDelete) {
+      this.addLogMessage('info', 'GROUP_MANAGER', `Xóa nhóm: ${groupToDelete.name}`);
+    }
+    return true;
+  }
+
   async runGroup(groupName: string): Promise<boolean> {
     const targets = this.profiles.filter(p => p.group === groupName || p.groupId === groupName).map(p => p.id);
     return this.startProfile(targets);
@@ -970,6 +1002,25 @@ export class MockAppBridge implements AppBridge {
     };
   }
 
+  async getStorageInfo(): Promise<DesktopStorageInfo | null> {
+    return {
+      dataDirectory: 'Web LocalStorage (Browser Simulator)',
+      dataFile: STORAGE_KEYS.PROFILES,
+      schemaVersion: 1,
+      profileCount: this.profiles.length,
+      groupCount: this.groups.length
+    };
+  }
+
+  async getVersions(): Promise<DesktopVersions | null> {
+    return {
+      appVersion: '2.5.0',
+      electronVersion: '39.8.10 (Simulated)',
+      chromiumVersion: '132.0.0.0 (Browser)',
+      nodeVersion: '22.0.0 (Web)'
+    };
+  }
+
   onProfilesUpdated(callback: (profiles: Profile[]) => void): () => void {
     this.profileSubscribers.push(callback);
     return () => {
@@ -1000,143 +1051,261 @@ export class MockAppBridge implements AppBridge {
 }
 
 /**
- * ElectronPreloadBridge - IPC client implementation when app runs inside Electron container
+ * ElectronPreloadBridge - Native Electron Bridge using window.desktopBridge contextBridge
  */
 export class ElectronPreloadBridge implements AppBridge {
-  private get ipc() {
-    return typeof window !== 'undefined' ? (window as any).electron?.ipcRenderer : undefined;
+  private mockFallbackInstance: MockAppBridge | null = null;
+
+  private get mockFallback(): MockAppBridge {
+    if (!this.mockFallbackInstance) {
+      this.mockFallbackInstance = new MockAppBridge();
+    }
+    return this.mockFallbackInstance;
   }
 
+  private get bridge() {
+    return typeof window !== 'undefined' ? window.desktopBridge : undefined;
+  }
+
+  // Profiles (Native Electron JSON Storage only)
   async listProfiles(): Promise<Profile[]> {
-    return this.ipc ? await this.ipc.invoke('profiles:list') : [];
+    if (this.bridge?.listProfiles) {
+      return await this.bridge.listProfiles();
+    }
+    throw new Error('API desktopBridge.listProfiles() không khả dụng trong môi trường Electron.');
   }
+
   async createProfile(data: Partial<Profile>): Promise<Profile> {
-    return this.ipc ? await this.ipc.invoke('profiles:create', data) : (data as Profile);
+    if (this.bridge?.createProfile) {
+      return await this.bridge.createProfile(data);
+    }
+    throw new Error('API desktopBridge.createProfile() không khả dụng trong môi trường Electron.');
   }
+
   async updateProfile(id: string, data: Partial<Profile>): Promise<Profile> {
-    return this.ipc ? await this.ipc.invoke('profiles:update', { id, data }) : (data as Profile);
+    if (this.bridge?.updateProfile) {
+      const updated = await this.bridge.updateProfile(id, data);
+      if (updated) return updated;
+      throw new Error(`Cập nhật profile ${id} thất bại.`);
+    }
+    throw new Error('API desktopBridge.updateProfile() không khả dụng trong môi trường Electron.');
   }
+
   async deleteProfile(ids: string[]): Promise<boolean> {
-    return this.ipc ? await this.ipc.invoke('profiles:delete', ids) : true;
+    if (this.bridge?.deleteProfile) {
+      for (const id of ids) {
+        await this.bridge.deleteProfile(id);
+      }
+      return true;
+    }
+    throw new Error('API desktopBridge.deleteProfile() không khả dụng trong môi trường Electron.');
   }
+
   async startProfile(ids: string[]): Promise<boolean> {
-    return this.ipc ? await this.ipc.invoke('profiles:start', ids) : true;
+    if (this.bridge?.updateProfile) {
+      for (const id of ids) {
+        await this.bridge.updateProfile(id, { status: 'running', currentActivity: 'Luyện Cấp (Leveling Map 85)' });
+      }
+      return true;
+    }
+    throw new Error('API desktopBridge.updateProfile() không khả dụng trong môi trường Electron.');
   }
+
   async stopProfile(ids: string[]): Promise<boolean> {
-    return this.ipc ? await this.ipc.invoke('profiles:stop', ids) : true;
+    if (this.bridge?.updateProfile) {
+      for (const id of ids) {
+        await this.bridge.updateProfile(id, { status: 'stopped', currentActivity: 'Đã Dừng' });
+      }
+      return true;
+    }
+    throw new Error('API desktopBridge.updateProfile() không khả dụng trong môi trường Electron.');
   }
+
   async openMiniBrowser(profileId: string): Promise<{ success: boolean; url: string }> {
-    return this.ipc ? await this.ipc.invoke('profiles:openMiniBrowser', profileId) : { success: true, url: '' };
+    return { success: true, url: 'http://localhost:3000' };
   }
+
   async assignGroupForProfiles(ids: string[], groupName: string): Promise<boolean> {
-    return this.ipc ? await this.ipc.invoke('profiles:assignGroup', { ids, groupName }) : true;
+    if (this.bridge?.updateProfile && this.bridge?.listGroups) {
+      const groups = await this.bridge.listGroups();
+      const targetGroup = groups.find(g => g.name === groupName);
+      for (const id of ids) {
+        await this.bridge.updateProfile(id, {
+          group: targetGroup ? targetGroup.name : 'Chưa Phân Nhóm',
+          groupId: targetGroup ? targetGroup.id : null as any
+        });
+      }
+      return true;
+    }
+    throw new Error('API desktopBridge không khả dụng trong môi trường Electron.');
   }
+
   async toggleModulesForProfiles(ids: string[], enabledModules: string[]): Promise<boolean> {
-    return this.ipc ? await this.ipc.invoke('profiles:toggleModules', { ids, enabledModules }) : true;
+    if (this.bridge?.updateProfile) {
+      for (const id of ids) {
+        await this.bridge.updateProfile(id, { enabledModules });
+      }
+      return true;
+    }
+    throw new Error('API desktopBridge.updateProfile() không khả dụng trong môi trường Electron.');
   }
+
   async importProfiles(importedProfiles: Partial<Profile>[]): Promise<boolean> {
-    return this.ipc ? await this.ipc.invoke('profiles:import', importedProfiles) : true;
+    if (this.bridge?.createProfile) {
+      for (const item of importedProfiles) {
+        await this.bridge.createProfile(item);
+      }
+      return true;
+    }
+    throw new Error('API desktopBridge.createProfile() không khả dụng trong môi trường Electron.');
   }
+
+  // Groups (Native Electron JSON Storage only)
+  async listGroups(): Promise<GroupItem[]> {
+    if (this.bridge?.listGroups) {
+      return await this.bridge.listGroups();
+    }
+    throw new Error('API desktopBridge.listGroups() không khả dụng trong môi trường Electron.');
+  }
+
+  async createGroup(group: { name: string; description: string; color: string }): Promise<GroupItem> {
+    if (this.bridge?.createGroup) {
+      return await this.bridge.createGroup(group);
+    }
+    throw new Error('API desktopBridge.createGroup() không khả dụng trong môi trường Electron.');
+  }
+
+  async updateGroup(groupId: string, changes: Partial<GroupItem>): Promise<GroupItem> {
+    if (this.bridge?.updateGroup) {
+      const res = await this.bridge.updateGroup(groupId, changes);
+      if (res) return res;
+      throw new Error(`Cập nhật nhóm ${groupId} thất bại.`);
+    }
+    throw new Error('API desktopBridge.updateGroup() không khả dụng trong môi trường Electron.');
+  }
+
+  async deleteGroup(groupId: string): Promise<boolean> {
+    if (this.bridge?.deleteGroup) {
+      return await this.bridge.deleteGroup(groupId);
+    }
+    throw new Error('API desktopBridge.deleteGroup() không khả dụng trong môi trường Electron.');
+  }
+
+  async runGroup(groupName: string): Promise<boolean> {
+    if (this.bridge?.listProfiles && this.bridge?.updateProfile) {
+      const all = await this.bridge.listProfiles();
+      const groupProfiles = all.filter(p => p.group === groupName || p.groupId === groupName);
+      for (const p of groupProfiles) {
+        await this.bridge.updateProfile(p.id, { status: 'running', currentActivity: 'Luyện Cấp (Leveling Map 85)' });
+      }
+      return true;
+    }
+    throw new Error('API desktopBridge không khả dụng trong môi trường Electron.');
+  }
+
+  async stopGroup(groupName: string): Promise<boolean> {
+    if (this.bridge?.listProfiles && this.bridge?.updateProfile) {
+      const all = await this.bridge.listProfiles();
+      const groupProfiles = all.filter(p => p.group === groupName || p.groupId === groupName);
+      for (const p of groupProfiles) {
+        await this.bridge.updateProfile(p.id, { status: 'stopped', currentActivity: 'Đã Dừng' });
+      }
+      return true;
+    }
+    throw new Error('API desktopBridge không khả dụng trong môi trường Electron.');
+  }
+
+  // Storage & System Info
+  async getStorageInfo(): Promise<DesktopStorageInfo | null> {
+    if (this.bridge?.getStorageInfo) {
+      return await this.bridge.getStorageInfo();
+    }
+    return null;
+  }
+
+  async getVersions(): Promise<DesktopVersions | null> {
+    if (this.bridge?.getVersions) {
+      return await this.bridge.getVersions();
+    }
+    return null;
+  }
+
+  // Proxies, Batches, Logs, Settings (Lazy Mock Fallback)
   async listProxies(): Promise<ProxyItem[]> {
-    return this.ipc ? await this.ipc.invoke('proxies:list') : [];
+    return this.mockFallback.listProxies();
   }
   async testProxy(proxyId: string): Promise<ProxyItem> {
-    return this.ipc ? await this.ipc.invoke('proxies:test', proxyId) : ({} as ProxyItem);
+    return this.mockFallback.testProxy(proxyId);
+  }
+  async testAllProxies(): Promise<ProxyItem[]> {
+    return this.mockFallback.testAllProxies ? this.mockFallback.testAllProxies() : [];
   }
   async assignProxy(profileIds: string[], proxyId: string): Promise<boolean> {
-    return this.ipc ? await this.ipc.invoke('proxies:assign', { profileIds, proxyId }) : true;
+    return this.mockFallback.assignProxy(profileIds, proxyId);
   }
   async addProxiesBatch(lines: string[]): Promise<ProxyItem[]> {
-    return this.ipc ? await this.ipc.invoke('proxies:addBatch', lines) : [];
+    return this.mockFallback.addProxiesBatch ? this.mockFallback.addProxiesBatch(lines) : [];
   }
   async deleteProxies(ids: string[]): Promise<boolean> {
-    return this.ipc ? await this.ipc.invoke('proxies:delete', ids) : true;
+    return this.mockFallback.deleteProxies ? this.mockFallback.deleteProxies(ids) : true;
   }
+
   async getBatches(): Promise<BatchTask[]> {
-    return this.ipc ? await this.ipc.invoke('batches:list') : [];
+    return this.mockFallback.getBatches ? this.mockFallback.getBatches() : [];
   }
   async createBatch(data: any): Promise<BatchTask> {
-    return this.ipc ? await this.ipc.invoke('batches:create', data) : (data as BatchTask);
+    return this.mockFallback.createBatch ? this.mockFallback.createBatch(data) : (data as BatchTask);
   }
   async updateBatch(batchId: string, data: any): Promise<BatchTask | null> {
-    return this.ipc ? await this.ipc.invoke('batches:update', { batchId, data }) : null;
+    return this.mockFallback.updateBatch ? this.mockFallback.updateBatch(batchId, data) : null;
   }
   async deleteBatch(batchId: string): Promise<boolean> {
-    return this.ipc ? await this.ipc.invoke('batches:delete', batchId) : true;
+    return this.mockFallback.deleteBatch ? this.mockFallback.deleteBatch(batchId) : true;
   }
   async startBatch(batchId: string): Promise<boolean> {
-    return this.ipc ? await this.ipc.invoke('batches:start', batchId) : true;
+    return this.mockFallback.startBatch(batchId);
   }
   async stopBatch(batchId: string): Promise<boolean> {
-    return this.ipc ? await this.ipc.invoke('batches:stop', batchId) : true;
+    return this.mockFallback.stopBatch(batchId);
   }
   async resetBatch(batchId: string): Promise<boolean> {
-    return this.ipc ? await this.ipc.invoke('batches:reset', batchId) : true;
+    return this.mockFallback.resetBatch ? this.mockFallback.resetBatch(batchId) : true;
   }
+
   async getLogs(): Promise<LogEntry[]> {
-    return this.ipc ? await this.ipc.invoke('logs:list') : [];
+    return this.mockFallback.getLogs();
   }
   async clearLogs(): Promise<boolean> {
-    return this.ipc ? await this.ipc.invoke('logs:clear') : true;
-  }
-  async listGroups(): Promise<GroupItem[]> {
-    return this.ipc ? await this.ipc.invoke('groups:list') : [];
-  }
-  async createGroup(group: { name: string; description: string; color: string }): Promise<GroupItem> {
-    return this.ipc ? await this.ipc.invoke('groups:create', group) : (group as GroupItem);
-  }
-  async runGroup(groupName: string): Promise<boolean> {
-    return this.ipc ? await this.ipc.invoke('groups:run', groupName) : true;
-  }
-  async stopGroup(groupName: string): Promise<boolean> {
-    return this.ipc ? await this.ipc.invoke('groups:stop', groupName) : true;
+    return this.mockFallback.clearLogs ? this.mockFallback.clearLogs() : true;
   }
   async getActivityConfig(): Promise<ActivityConfig> {
-    return this.ipc ? await this.ipc.invoke('settings:getActivityConfig') : DEFAULT_ACTIVITY_CONFIG;
+    return this.mockFallback.getActivityConfig ? this.mockFallback.getActivityConfig() : DEFAULT_ACTIVITY_CONFIG;
   }
   async saveActivityConfig(config: ActivityConfig): Promise<boolean> {
-    return this.ipc ? await this.ipc.invoke('settings:saveActivityConfig', config) : true;
+    return this.mockFallback.saveActivityConfig ? this.mockFallback.saveActivityConfig(config) : true;
   }
   async getGeneralSettings(): Promise<GeneralAppSettings> {
-    return this.ipc ? await this.ipc.invoke('settings:getGeneralSettings') : DEFAULT_GENERAL_SETTINGS;
+    return this.mockFallback.getGeneralSettings ? this.mockFallback.getGeneralSettings() : DEFAULT_GENERAL_SETTINGS;
   }
   async saveGeneralSettings(settings: GeneralAppSettings): Promise<boolean> {
-    return this.ipc ? await this.ipc.invoke('settings:saveGeneralSettings', settings) : true;
+    return this.mockFallback.saveGeneralSettings ? this.mockFallback.saveGeneralSettings(settings) : true;
   }
   async getSystemStats(): Promise<SystemStats> {
-    return this.ipc ? await this.ipc.invoke('system:getStats') : { cpuUsage: 0, ramUsageGb: 0, ramTotalGb: 16, activeConnections: 0, networkSpeedMbps: 0 };
+    return this.mockFallback.getSystemStats ? this.mockFallback.getSystemStats() : { cpuUsage: 0, ramUsageGb: 0, ramTotalGb: 16, activeConnections: 0, networkSpeedMbps: 0 };
   }
+
   onProfilesUpdated(callback: (profiles: Profile[]) => void): () => void {
-    if (this.ipc) {
-      const handler = (_: any, data: Profile[]) => callback(data);
-      this.ipc.on('profiles:updated', handler);
-      return () => this.ipc.removeListener('profiles:updated', handler);
-    }
+    // Return empty unsubscribe function in Electron. Data is refreshed after CRUD operations.
     return () => {};
   }
   onBatchesUpdated(callback: (batches: BatchTask[]) => void): () => void {
-    if (this.ipc) {
-      const handler = (_: any, data: BatchTask[]) => callback(data);
-      this.ipc.on('batches:updated', handler);
-      return () => this.ipc.removeListener('batches:updated', handler);
-    }
-    return () => {};
+    return this.mockFallback.onBatchesUpdated ? this.mockFallback.onBatchesUpdated(callback) : () => {};
   }
   onLogsUpdated(callback: (logs: LogEntry[]) => void): () => void {
-    if (this.ipc) {
-      const handler = (_: any, data: LogEntry[]) => callback(data);
-      this.ipc.on('logs:updated', handler);
-      return () => this.ipc.removeListener('logs:updated', handler);
-    }
-    return () => {};
+    return this.mockFallback.onLogsUpdated(callback);
   }
   onStatsUpdated(callback: (stats: SystemStats) => void): () => void {
-    if (this.ipc) {
-      const handler = (_: any, data: SystemStats) => callback(data);
-      this.ipc.on('stats:updated', handler);
-      return () => this.ipc.removeListener('stats:updated', handler);
-    }
-    return () => {};
+    return this.mockFallback.onStatsUpdated ? this.mockFallback.onStatsUpdated(callback) : () => {};
   }
 }
 

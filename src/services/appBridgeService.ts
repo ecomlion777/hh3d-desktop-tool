@@ -7,8 +7,8 @@ import { AppBridge } from '../types';
 import { MockAppBridge, ElectronPreloadBridge } from './AppBridge';
 
 function createAppBridge(): AppBridge {
-  if (typeof window !== 'undefined' && (window as any).electron?.ipcRenderer) {
-    console.log('[AppBridge] Initializing Native Electron Preload Bridge');
+  if (typeof window !== 'undefined' && window.desktopBridge) {
+    console.log('[AppBridge] Initializing Native Electron Desktop Bridge');
     return new ElectronPreloadBridge();
   }
   

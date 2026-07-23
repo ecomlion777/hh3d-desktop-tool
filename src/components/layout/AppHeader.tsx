@@ -20,6 +20,7 @@ import {
   Zap
 } from 'lucide-react';
 import { ViewTab } from '../../types';
+import { appBridge } from '../../services/appBridgeService';
 
 interface AppHeaderProps {
   currentTab: ViewTab;
@@ -62,7 +63,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
           <span className="text-slate-500">|</span>
           <span className="bg-emerald-500/10 text-emerald-400 px-2 py-0.5 rounded text-[10px] font-mono border border-emerald-500/20 flex items-center gap-1">
             <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
-            {typeof window !== 'undefined' && window.desktopBridge?.getVersions ? 'Electron IPC Bridge' : 'Mock IPC Bridge'}
+            {typeof window !== 'undefined' && (window as any).desktopBridge ? 'Electron IPC Bridge' : 'Mock IPC Bridge'}
           </span>
           <span className="text-slate-500 text-[11px] hidden md:inline">
             Active: {runningProfilesCount}/{totalProfilesCount} Profiles
