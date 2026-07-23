@@ -2,9 +2,9 @@
  * GeneralSettingsView - App Settings, IPC Bridge Toggles & Backup
  */
 
-import React, { useState } from 'react';
-import { Settings, Save, CheckCircle2, Radio, HardDrive, Download, Upload, Shield, Cpu } from 'lucide-react';
-import { GeneralAppSettings } from '../../types';
+import React, { useState, useEffect } from 'react';
+import { Settings, Save, CheckCircle2, Radio, HardDrive, Download, Upload, Shield, Cpu, Info } from 'lucide-react';
+import { GeneralAppSettings, DesktopVersions } from '../../types';
 
 interface GeneralSettingsViewProps {
   settings: GeneralAppSettings;
@@ -17,6 +17,26 @@ export const GeneralSettingsView: React.FC<GeneralSettingsViewProps> = ({
 }) => {
   const [form, setForm] = useState<GeneralAppSettings>({ ...settings });
   const [savedSuccess, setSavedSuccess] = useState(false);
+  const [versions, setVersions] = useState<DesktopVersions>({
+    appVersion: '2.5.0',
+    electronVersion: '39.8.10',
+    chromiumVersion: '132.0.0.0',
+    nodeVersion: '22.0.0'
+  });
+  const [isElectronEnv, setIsElectronEnv] = useState(false);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined' && window.desktopBridge?.getVersions) {
+      window.desktopBridge.getVersions().then(v => {
+        if (v) {
+          setVersions(v);
+          setIsElectronEnv(true);
+        }
+      }).catch(err => {
+        console.warn('Could not fetch desktop versions:', err);
+      });
+    }
+  }, []);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -170,6 +190,38 @@ export const GeneralSettingsView: React.FC<GeneralSettingsViewProps> = ({
               <Save className="w-4 h-4" />
               <span>Lưu Tất Cả Cài Đặt</span>
             </button>
+          </div>
+        </div>
+
+        {/* Full Width Card: App & System Info */}
+        <div className="md:col-span-2 bg-slate-900 border border-slate-800 rounded-lg p-4 space-y-3">
+          <h3 className="font-bold text-slate-200 uppercase text-[11px] tracking-wider border-b border-slate-800 pb-2 text-cyan-400 flex items-center justify-between">
+            <span className="flex items-center gap-1.5">
+              <Info className="w-4 h-4 text-cyan-400" />
+              <span>Thông Tin Môi Trường & Phiên Bản (System & Runtime Versions)</span>
+            </span>
+            <span className={`px-2 py-0.5 rounded text-[10px] font-mono ${isElectronEnv ? 'bg-emerald-950 text-emerald-400 border border-emerald-800' : 'bg-slate-800 text-slate-400 border border-slate-700'}`}>
+              {isElectronEnv ? 'Electron Desktop Environment' : 'Web Browser Simulator Mode'}
+            </span>
+          </h3>
+
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-1">
+            <div className="bg-slate-950 p-3 rounded border border-slate-800">
+              <span className="text-[10px] text-slate-500 uppercase font-semibold block">App Version</span>
+              <span className="font-mono font-bold text-xs sm:text-sm text-cyan-400">v{versions.appVersion}</span>
+            </div>
+            <div className="bg-slate-950 p-3 rounded border border-slate-800">
+              <span className="text-[10px] text-slate-500 uppercase font-semibold block">Electron Version</span>
+              <span className="font-mono font-bold text-xs sm:text-sm text-slate-200">{versions.electronVersion}</span>
+            </div>
+            <div className="bg-slate-950 p-3 rounded border border-slate-800">
+              <span className="text-[10px] text-slate-500 uppercase font-semibold block">Chromium Version</span>
+              <span className="font-mono font-bold text-xs sm:text-sm text-slate-200">{versions.chromiumVersion}</span>
+            </div>
+            <div className="bg-slate-950 p-3 rounded border border-slate-800">
+              <span className="text-[10px] text-slate-500 uppercase font-semibold block">Node.js Version</span>
+              <span className="font-mono font-bold text-xs sm:text-sm text-slate-200">{versions.nodeVersion}</span>
+            </div>
           </div>
         </div>
 

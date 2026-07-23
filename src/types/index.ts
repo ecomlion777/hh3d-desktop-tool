@@ -14,6 +14,7 @@ import {
 } from '../shared';
 
 export * from '../shared';
+export * from './electron';
 
 /**
  * AppBridge Interface

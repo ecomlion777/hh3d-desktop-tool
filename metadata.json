@@ -2,5 +2,7 @@
   "name": "HH3D Desktop Tool",
   "description": "Công cụ quản lý đa tài khoản game dạng Desktop Dashboard chuyên nghiệp với simulated Electron IPC bridge.",
   "requestFramePermissions": [],
-  "majorCapabilities": []
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
 }
