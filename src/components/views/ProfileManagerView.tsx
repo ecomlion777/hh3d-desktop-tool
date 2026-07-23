@@ -3,7 +3,7 @@
  * Displays profiles with complete columns, bulk actions, status filters, search, pagination & full modals.
  */
 
-import React, { useState, useMemo, useCallback } from 'react';
+import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import {
   Users,
   Play,
@@ -21,9 +21,11 @@ import {
   Layers,
   FileJson,
   Download,
-  UserPlus
+  UserPlus,
+  Info
 } from 'lucide-react';
 import { Profile, ProfileStatus, GroupItem, ProxyItem } from '../../types';
+import { MiniBrowserStatus } from '../../types/electron';
 
 import { EditProfileModal } from '../modals/EditProfileModal';
 import { ConfirmDeleteModal } from '../modals/ConfirmDeleteModal';
@@ -46,14 +48,19 @@ interface ProfileManagerViewProps {
   onStartSelectedProfiles: (ids: string[]) => void;
   onStopSelectedProfiles: (ids: string[]) => void;
   onDeleteSelectedProfiles: (ids: string[]) => void;
-  onOpenMiniBrowser: (profile: Profile) => void;
+  onOpenMiniBrowser: (profileId: string) => Promise<MiniBrowserStatus>;
+  onFocusMiniBrowser?: (profileId: string) => Promise<boolean>;
+  onMiniBrowserError?: (message: string) => void;
+  onOpenMiniBrowserDetails?: (profile: Profile) => void;
   onOpenProfileSettings: (profile: Profile) => void;
   onOpenAddProfile: () => void;
-  onUpdateProfile: (id: string, updatedData: Partial<Profile>) => Promise<void>;
+  onUpdateProfile: (id: string, updatedData: Partial<Profile>) => Promise<Profile>;
   onAssignGroupForSelected: (ids: string[], groupName: string) => Promise<void>;
   onAssignProxyForSelected: (ids: string[], proxyId: string) => Promise<void>;
   onToggleModulesForSelected: (ids: string[], enabledModules: string[]) => Promise<void>;
   onImportProfilesFromJSON: (importedProfiles: Partial<Profile>[]) => Promise<void>;
+  miniBrowserStatuses?: Record<string, MiniBrowserStatus>;
+  onSelectionChange?: (selectedIds: string[]) => void;
 }
 
 // Status Badge Helper Component
@@ -104,9 +111,13 @@ StatusBadge.displayName = 'StatusBadge';
 interface ProfileTableRowProps {
   profile: Profile;
   isChecked: boolean;
+  miniBrowserStatus?: MiniBrowserStatus;
   onToggleSelectRow: (id: string) => void;
   onToggleProfileRun: (id: string) => void;
-  onOpenMiniBrowser: (profile: Profile) => void;
+  onOpenMiniBrowser: (profileId: string) => Promise<MiniBrowserStatus>;
+  onFocusMiniBrowser?: (profileId: string) => Promise<boolean>;
+  onMiniBrowserError?: (message: string) => void;
+  onOpenMiniBrowserDetails?: (profile: Profile) => void;
   onEditProfile: (profile: Profile) => void;
   onDeleteSingleProfile: (profile: Profile) => void;
 }
@@ -114,12 +125,47 @@ interface ProfileTableRowProps {
 const ProfileTableRow = React.memo<ProfileTableRowProps>(({
   profile: p,
   isChecked,
+  miniBrowserStatus,
   onToggleSelectRow,
   onToggleProfileRun,
   onOpenMiniBrowser,
+  onFocusMiniBrowser,
+  onMiniBrowserError,
+  onOpenMiniBrowserDetails,
   onEditProfile,
   onDeleteSingleProfile
 }) => {
+  const mbState = miniBrowserStatus?.state || 'closed';
+  const isOpenOrLoading = mbState === 'opening' || mbState === 'loading' || mbState === 'open';
+
+  let tooltipText = 'Mở Mini Browser';
+  if (mbState === 'opening' || mbState === 'loading') {
+    tooltipText = 'Đang tải Mini Browser';
+  } else if (mbState === 'open') {
+    tooltipText = 'Mini Browser đang mở – bấm để focus';
+  } else if (mbState === 'error') {
+    tooltipText = 'Lỗi Mini Browser';
+  }
+
+  const handleMiniBrowserClick = async () => {
+    try {
+      if (isOpenOrLoading && onFocusMiniBrowser) {
+        const focused = await onFocusMiniBrowser(p.id);
+        if (!focused) {
+          await onOpenMiniBrowser(p.id);
+        }
+      } else {
+        await onOpenMiniBrowser(p.id);
+      }
+    } catch (error: any) {
+      const msg = error?.message || String(error);
+      console.error(`Mini Browser error for profile ${p.id}:`, error);
+      if (onMiniBrowserError) {
+        onMiniBrowserError(msg);
+      }
+    }
+  };
+
   return (
     <tr
       className={`hover:bg-slate-800/80 transition ${
@@ -209,14 +255,33 @@ const ProfileTableRow = React.memo<ProfileTableRowProps>(({
             </button>
           )}
 
-          {/* Mini Browser */}
+          {/* Mini Browser Direct Button */}
           <button
-            onClick={() => onOpenMiniBrowser(p)}
-            className="p-1.5 bg-slate-800 hover:bg-purple-600 hover:text-white text-purple-300 border border-slate-700 rounded transition"
-            title="Mở Mini Browser"
+            onClick={handleMiniBrowserClick}
+            className={`p-1.5 rounded transition border ${
+              mbState === 'open'
+                ? 'bg-emerald-950 text-emerald-300 border-emerald-700 hover:bg-emerald-900'
+                : mbState === 'opening' || mbState === 'loading'
+                ? 'bg-amber-950 text-amber-300 border-amber-700 hover:bg-amber-900 animate-pulse'
+                : mbState === 'error'
+                ? 'bg-rose-950 text-rose-300 border-rose-700 hover:bg-rose-900'
+                : 'bg-slate-800 hover:bg-purple-600 hover:text-white text-purple-300 border-slate-700'
+            }`}
+            title={tooltipText}
           >
             <Monitor className="w-3.5 h-3.5" />
           </button>
+
+          {/* Mini Browser Details Modal Button */}
+          {onOpenMiniBrowserDetails && (
+            <button
+              onClick={() => onOpenMiniBrowserDetails(p)}
+              className="p-1.5 bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-cyan-300 border border-slate-700 rounded transition"
+              title="Xem Chi Tiết Session Mini Browser"
+            >
+              <Info className="w-3.5 h-3.5" />
+            </button>
+          )}
 
           {/* Edit Settings */}
           <button
@@ -257,16 +322,28 @@ export const ProfileManagerView: React.FC<ProfileManagerViewProps> = ({
   onStopSelectedProfiles,
   onDeleteSelectedProfiles,
   onOpenMiniBrowser,
+  onFocusMiniBrowser,
+  onMiniBrowserError,
+  onOpenMiniBrowserDetails,
   onOpenAddProfile,
   onUpdateProfile,
   onAssignGroupForSelected,
   onAssignProxyForSelected,
   onToggleModulesForSelected,
-  onImportProfilesFromJSON
+  onImportProfilesFromJSON,
+  miniBrowserStatuses = {},
+  onSelectionChange
 }) => {
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [pageSize, setPageSize] = useState<number>(25);
   const [currentPage, setCurrentPage] = useState<number>(1);
+
+  // Notify parent component when selection changes
+  useEffect(() => {
+    if (onSelectionChange) {
+      onSelectionChange(selectedIds);
+    }
+  }, [selectedIds, onSelectionChange]);
 
   // Modals local state
   const [editingProfile, setEditingProfile] = useState<Profile | null>(null);
@@ -373,269 +450,177 @@ export const ProfileManagerView: React.FC<ProfileManagerViewProps> = ({
 
   const triggerBulkDelete = useCallback(() => {
     if (selectedIds.length === 0) return;
-    const names = profiles
-      .filter(p => selectedIds.includes(p.id))
-      .map(p => `${p.characterName || p.displayName} (${p.uid})`);
+    const selectedProfiles = profiles.filter(p => selectedIds.includes(p.id));
     setDeleteTargetIds(selectedIds);
-    setDeleteTargetNames(names);
+    setDeleteTargetNames(selectedProfiles.map(p => `${p.characterName || p.displayName} (${p.uid})`));
     setIsConfirmDeleteOpen(true);
   }, [selectedIds, profiles]);
 
-  const handleConfirmDelete = useCallback(() => {
-    onDeleteSelectedProfiles(deleteTargetIds);
+  const handleConfirmDelete = async () => {
+    await onDeleteSelectedProfiles(deleteTargetIds);
     setSelectedIds(prev => prev.filter(id => !deleteTargetIds.includes(id)));
-    setDeleteTargetIds([]);
-    setDeleteTargetNames([]);
-  }, [deleteTargetIds, onDeleteSelectedProfiles]);
-
-  // Export JSON handler
-  const handleExportJSON = useCallback((selectedOnly: boolean) => {
-    const targetProfiles = selectedOnly && selectedIds.length > 0
-      ? profiles.filter(p => selectedIds.includes(p.id))
-      : filteredProfiles;
-
-    if (targetProfiles.length === 0) {
-      alert('Không có profile nào để export!');
-      return;
-    }
-
-    const exportData = targetProfiles.map(p => ({
-      id: p.id,
-      uid: p.uid,
-      characterName: p.characterName || p.displayName,
-      group: p.group,
-      proxyId: p.proxyId,
-      proxyAddress: p.proxyAddress,
-      currentIp: p.currentIp,
-      status: p.status,
-      level: p.level,
-      stamina: p.stamina,
-      enabledModules: p.enabledModules,
-      notes: p.notes,
-      createdAt: p.createdAt,
-      updatedAt: p.updatedAt
-    }));
-
-    const jsonStr = JSON.stringify(exportData, null, 2);
-    const blob = new Blob([jsonStr], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `hh3d_profiles_export_${new Date().toISOString().slice(0, 10)}.json`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-  }, [selectedIds, profiles, filteredProfiles]);
+    setIsConfirmDeleteOpen(false);
+  };
 
   return (
-    <div id="view-profile-manager" className="flex flex-col h-full bg-slate-900 text-slate-200 overflow-hidden select-none">
+    <div id="view-profile-manager" className="flex-1 flex flex-col bg-slate-900 overflow-hidden text-slate-200">
       
       {/* Top Filter & Toolbar Bar */}
       <div className="p-3 bg-slate-950 border-b border-slate-800 flex flex-wrap items-center justify-between gap-3 shrink-0">
         
-        {/* Status Filter Tabs */}
-        <div className="flex flex-wrap items-center gap-1 text-xs">
+        {/* Left Status Filter Badges */}
+        <div className="flex flex-wrap items-center gap-1.5 text-xs">
           <button
             onClick={() => onSelectStatusFilter(null)}
-            className={`px-3 py-1.5 rounded font-medium transition ${
+            className={`px-2.5 py-1 rounded font-medium border transition ${
               statusFilter === null
-                ? 'bg-cyan-600 text-white font-semibold shadow'
-                : 'bg-slate-900 text-slate-400 hover:bg-slate-800 hover:text-slate-200'
+                ? 'bg-slate-800 text-cyan-300 border-cyan-500/50 shadow-sm'
+                : 'bg-slate-900 text-slate-400 border-slate-800 hover:text-slate-200'
             }`}
           >
-            Tất Cả ({statusCounts.total})
+            Tất cả ({statusCounts.total})
           </button>
-          
+
           <button
             onClick={() => onSelectStatusFilter('running')}
-            className={`px-3 py-1.5 rounded font-medium transition flex items-center gap-1.5 ${
+            className={`px-2.5 py-1 rounded font-medium border transition flex items-center gap-1.5 ${
               statusFilter === 'running'
-                ? 'bg-emerald-600 text-white font-semibold shadow'
-                : 'bg-slate-900 text-slate-400 hover:bg-slate-800 hover:text-slate-200'
+                ? 'bg-emerald-950 text-emerald-300 border-emerald-600'
+                : 'bg-slate-900 text-slate-400 border-slate-800 hover:text-emerald-400'
             }`}
           >
-            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
-            <span>Running ({statusCounts.running})</span>
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+            Đang Chạy ({statusCounts.running})
           </button>
 
           <button
             onClick={() => onSelectStatusFilter('waiting')}
-            className={`px-3 py-1.5 rounded font-medium transition flex items-center gap-1.5 ${
+            className={`px-2.5 py-1 rounded font-medium border transition flex items-center gap-1.5 ${
               statusFilter === 'waiting'
-                ? 'bg-amber-600 text-white font-semibold shadow'
-                : 'bg-slate-900 text-slate-400 hover:bg-slate-800 hover:text-slate-200'
+                ? 'bg-amber-950 text-amber-300 border-amber-600'
+                : 'bg-slate-900 text-slate-400 border-slate-800 hover:text-amber-400'
             }`}
           >
-            <span>Waiting ({statusCounts.waiting})</span>
+            <Clock className="w-3 h-3 text-amber-400" />
+            Đang Chờ ({statusCounts.waiting})
           </button>
 
           <button
             onClick={() => onSelectStatusFilter('stopped')}
-            className={`px-3 py-1.5 rounded font-medium transition flex items-center gap-1.5 ${
+            className={`px-2.5 py-1 rounded font-medium border transition ${
               statusFilter === 'stopped'
-                ? 'bg-slate-700 text-white font-semibold shadow'
-                : 'bg-slate-900 text-slate-400 hover:bg-slate-800 hover:text-slate-200'
+                ? 'bg-slate-800 text-slate-200 border-slate-600'
+                : 'bg-slate-900 text-slate-400 border-slate-800 hover:text-slate-200'
             }`}
           >
-            <span>Stopped ({statusCounts.stopped})</span>
+            Đã Dừng ({statusCounts.stopped})
           </button>
 
           <button
             onClick={() => onSelectStatusFilter('proxy_error')}
-            className={`px-3 py-1.5 rounded font-medium transition flex items-center gap-1.5 ${
+            className={`px-2.5 py-1 rounded font-medium border transition flex items-center gap-1.5 ${
               statusFilter === 'proxy_error'
-                ? 'bg-rose-600 text-white font-semibold shadow'
-                : 'bg-slate-900 text-slate-400 hover:bg-slate-800 hover:text-slate-200'
+                ? 'bg-rose-950 text-rose-300 border-rose-600'
+                : 'bg-slate-900 text-slate-400 border-slate-800 hover:text-rose-400'
             }`}
           >
-            <span>Proxy Error ({statusCounts.proxyError})</span>
-          </button>
-
-          <button
-            onClick={() => onSelectStatusFilter('login_required')}
-            className={`px-3 py-1.5 rounded font-medium transition flex items-center gap-1.5 ${
-              statusFilter === 'login_required'
-                ? 'bg-purple-600 text-white font-semibold shadow'
-                : 'bg-slate-900 text-slate-400 hover:bg-slate-800 hover:text-slate-200'
-            }`}
-          >
-            <span>Login Required ({statusCounts.loginRequired})</span>
+            <AlertTriangle className="w-3 h-3 text-rose-400" />
+            Lỗi Proxy ({statusCounts.proxyError})
           </button>
         </div>
 
-        {/* Action Buttons: Add, Import, Export */}
-        <div className="flex items-center space-x-2 text-xs">
-          <button
-            onClick={onOpenAddProfile}
-            className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold rounded transition flex items-center gap-1 shadow-md shadow-emerald-950/50"
-          >
-            <UserPlus className="w-3.5 h-3.5" />
-            <span>Thêm Profile</span>
-          </button>
-
-          <button
-            onClick={() => setIsImportJsonOpen(true)}
-            className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-emerald-400 border border-slate-700 font-medium rounded transition flex items-center gap-1"
-          >
-            <FileJson className="w-3.5 h-3.5" />
-            <span>Import JSON</span>
-          </button>
-
-          <button
-            onClick={() => handleExportJSON(selectedIds.length > 0)}
-            className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-cyan-400 border border-slate-700 font-medium rounded transition flex items-center gap-1"
-            title={selectedIds.length > 0 ? "Export các profile đã chọn" : "Export tất cả profile trong bộ lọc"}
-          >
-            <Download className="w-3.5 h-3.5" />
-            <span>Export JSON {selectedIds.length > 0 ? `(${selectedIds.length})` : ''}</span>
-          </button>
-
-          {/* Group Selector Dropdown */}
-          <div className="flex items-center space-x-1.5 pl-2 border-l border-slate-800">
-            <span className="text-slate-400 hidden sm:inline">Nhóm:</span>
-            <select
-              value={selectedGroup || ''}
-              onChange={(e) => onSelectGroup(e.target.value || null)}
-              className="bg-slate-900 border border-slate-800 text-slate-200 rounded px-2.5 py-1.5 text-xs focus:outline-none focus:border-cyan-500 font-medium"
-            >
-              <option value="">-- Tất cả nhóm --</option>
-              {groups.map(g => (
-                <option key={g.id} value={g.name}>{g.name} ({g.profileCount})</option>
-              ))}
-            </select>
-          </div>
-        </div>
-      </div>
-
-      {/* Bulk Action Controls Bar */}
-      <div className="px-4 py-2 bg-slate-900 border-b border-slate-800 flex flex-wrap items-center justify-between text-xs gap-3 shrink-0">
-        <div className="flex items-center flex-wrap gap-2">
-          <span className="text-slate-300 font-medium mr-1">
-            Đã chọn: <strong className="text-cyan-400 font-mono">{selectedIds.length}</strong> / {filteredProfiles.length} profiles
-          </span>
-
-          {selectedIds.length > 0 && (
-            <div className="flex items-center flex-wrap gap-1.5">
-              <button
-                onClick={() => onStartSelectedProfiles(selectedIds)}
-                className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold rounded transition flex items-center gap-1"
-              >
-                <Play className="w-3 h-3 fill-current" />
-                <span>Chạy ({selectedIds.length})</span>
-              </button>
-
-              <button
-                onClick={() => onStopSelectedProfiles(selectedIds)}
-                className="px-2.5 py-1 bg-slate-800 hover:bg-rose-950 text-rose-300 border border-slate-700 rounded transition flex items-center gap-1"
-              >
-                <Square className="w-3 h-3 text-rose-400 fill-current" />
-                <span>Dừng</span>
-              </button>
-
-              {/* Assign Group */}
-              <button
-                onClick={() => setIsAssignGroupOpen(true)}
-                className="px-2.5 py-1 bg-slate-800 hover:bg-cyan-950 hover:text-cyan-200 text-slate-300 border border-slate-700 rounded transition flex items-center gap-1"
-              >
-                <FolderPlus className="w-3 h-3 text-cyan-400" />
-                <span>Gán Nhóm</span>
-              </button>
-
-              {/* Assign Proxy */}
-              <button
-                onClick={() => setIsAssignProxyOpen(true)}
-                className="px-2.5 py-1 bg-slate-800 hover:bg-cyan-950 hover:text-cyan-200 text-slate-300 border border-slate-700 rounded transition flex items-center gap-1"
-              >
-                <Network className="w-3 h-3 text-cyan-400" />
-                <span>Gán Proxy</span>
-              </button>
-
-              {/* Toggle Modules */}
-              <button
-                onClick={() => setIsToggleModulesOpen(true)}
-                className="px-2.5 py-1 bg-slate-800 hover:bg-cyan-950 hover:text-cyan-200 text-slate-300 border border-slate-700 rounded transition flex items-center gap-1"
-              >
-                <Layers className="w-3 h-3 text-cyan-400" />
-                <span>Bật/Tắt Module</span>
-              </button>
-
-              {/* Delete Trigger */}
-              <button
-                onClick={triggerBulkDelete}
-                className="px-2.5 py-1 bg-slate-800 hover:bg-rose-950 text-rose-300 border border-slate-700 rounded transition flex items-center gap-1"
-              >
-                <Trash2 className="w-3 h-3 text-rose-400" />
-                <span>Xóa ({selectedIds.length})</span>
-              </button>
-
-              <button
-                onClick={handleClearSelection}
-                className="text-slate-400 hover:text-slate-200 underline text-[11px] ml-1"
-              >
-                Bỏ chọn
-              </button>
-            </div>
-          )}
-        </div>
-
+        {/* Right Action Quick Controls */}
         <div className="flex items-center space-x-2">
           <button
-            onClick={handleSelectAllInFiltered}
-            className="text-cyan-400 hover:underline text-xs font-medium"
+            onClick={() => setIsImportJsonOpen(true)}
+            className="flex items-center gap-1 px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 rounded text-xs font-medium transition"
+            title="Nhập Profiles từ JSON"
           >
-            Chọn tất cả ({filteredProfiles.length})
+            <FileJson className="w-3.5 h-3.5 text-cyan-400" />
+            <span className="hidden sm:inline">Import JSON</span>
+          </button>
+
+          <button
+            onClick={onOpenAddProfile}
+            className="flex items-center gap-1 px-2.5 py-1 bg-emerald-600 hover:bg-emerald-500 text-white rounded text-xs font-semibold shadow transition"
+          >
+            <UserPlus className="w-3.5 h-3.5" />
+            <span>Thêm Mới</span>
           </button>
         </div>
       </div>
 
+      {/* Bulk Operations Toolbar */}
+      {selectedIds.length > 0 && (
+        <div className="bg-cyan-950/60 border-b border-cyan-800/80 px-4 py-2 flex flex-wrap items-center justify-between gap-2 text-xs animate-in fade-in duration-150 shrink-0">
+          <div className="flex items-center space-x-2 font-medium text-cyan-300">
+            <span>Đã chọn <strong className="text-white font-bold">{selectedIds.length}</strong> profile</span>
+            <button
+              onClick={handleClearSelection}
+              className="text-[11px] underline hover:text-white text-cyan-400 ml-2"
+            >
+              Bỏ chọn tất cả
+            </button>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-1.5">
+            <button
+              onClick={() => onStartSelectedProfiles(selectedIds)}
+              className="flex items-center gap-1 px-2.5 py-1 bg-emerald-600 hover:bg-emerald-500 text-white rounded font-medium shadow-sm transition"
+            >
+              <Play className="w-3 h-3 fill-current" />
+              <span>Chạy</span>
+            </button>
+
+            <button
+              onClick={() => onStopSelectedProfiles(selectedIds)}
+              className="flex items-center gap-1 px-2.5 py-1 bg-rose-900 hover:bg-rose-800 text-rose-200 border border-rose-700 rounded font-medium transition"
+            >
+              <Square className="w-3 h-3 fill-current" />
+              <span>Dừng</span>
+            </button>
+
+            <button
+              onClick={() => setIsAssignGroupOpen(true)}
+              className="flex items-center gap-1 px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded font-medium transition"
+            >
+              <FolderPlus className="w-3 h-3 text-cyan-400" />
+              <span>Gán Nhóm</span>
+            </button>
+
+            <button
+              onClick={() => setIsAssignProxyOpen(true)}
+              className="flex items-center gap-1 px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded font-medium transition"
+            >
+              <Network className="w-3 h-3 text-amber-400" />
+              <span>Gán Proxy</span>
+            </button>
+
+            <button
+              onClick={() => setIsToggleModulesOpen(true)}
+              className="flex items-center gap-1 px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded font-medium transition"
+            >
+              <Layers className="w-3 h-3 text-purple-400" />
+              <span>Module</span>
+            </button>
+
+            <button
+              onClick={triggerBulkDelete}
+              className="flex items-center gap-1 px-2.5 py-1 bg-slate-800 hover:bg-rose-950 text-rose-300 border border-slate-700 rounded font-medium transition"
+            >
+              <Trash2 className="w-3 h-3 text-rose-400" />
+              <span>Xóa</span>
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Main Table Container */}
-      <div className="flex-1 overflow-auto custom-scrollbar relative">
-        <table className="w-full text-left text-xs text-slate-300 border-collapse min-w-[1200px]">
-          {/* Table Header */}
-          <thead className="bg-slate-950 text-slate-400 uppercase tracking-wider sticky top-0 z-20 border-b border-slate-800 text-[11px]">
+      <div className="flex-1 overflow-auto custom-scrollbar">
+        <table className="w-full text-left border-collapse text-xs">
+          <thead className="bg-slate-950 text-slate-400 uppercase text-[10px] tracking-wider sticky top-0 z-10 border-b border-slate-800">
             <tr>
-              <th className="p-3 w-10 text-center">
+              <th className="p-3 text-center w-10">
                 <input
                   type="checkbox"
                   checked={isAllSelected}
@@ -643,38 +628,42 @@ export const ProfileManagerView: React.FC<ProfileManagerViewProps> = ({
                   className="rounded border-slate-700 bg-slate-900 text-cyan-600 focus:ring-0 w-3.5 h-3.5 cursor-pointer"
                 />
               </th>
-              <th className="p-3 w-12 text-center font-mono">STT</th>
-              <th className="p-3 w-14 text-center">Avatar</th>
-              <th className="p-3 font-semibold text-slate-200">Tên Nhân Vật</th>
-              <th className="p-3 font-mono">UID</th>
-              <th className="p-3">Nhóm</th>
-              <th className="p-3 font-mono">Proxy</th>
-              <th className="p-3 font-mono">IP Hiện Tại</th>
-              <th className="p-3">Trạng Thái</th>
-              <th className="p-3">Hoạt Động Đang Chạy</th>
-              <th className="p-3 font-mono">Chạy Tiếp Theo</th>
+              <th className="p-3 text-center w-12">STT</th>
+              <th className="p-3 text-center w-12">Ảnh</th>
+              <th className="p-3 min-w-[140px]">Tên Nhân Vật</th>
+              <th className="p-3 min-w-[110px]">UID</th>
+              <th className="p-3 min-w-[100px]">Nhóm</th>
+              <th className="p-3 min-w-[140px]">Proxy</th>
+              <th className="p-3 min-w-[120px]">IP Hiện Tại</th>
+              <th className="p-3 min-w-[120px]">Trạng Thái</th>
+              <th className="p-3 min-w-[160px]">Hoạt Động Hiện Tại</th>
+              <th className="p-3 min-w-[110px]">Lần Chạy Tiếp</th>
               <th className="p-3 text-center w-36">Thao Tác</th>
             </tr>
           </thead>
-
-          {/* Table Body */}
-          <tbody className="divide-y divide-slate-800/60 bg-slate-900/60 font-medium">
+          <tbody className="divide-y divide-slate-800/60 font-sans">
             {paginatedProfiles.length === 0 ? (
               <tr>
-                <td colSpan={12} className="p-8 text-center text-slate-500 font-medium">
-                  Không tìm thấy profile phù hợp với bộ lọc.
+                <td colSpan={12} className="p-12 text-center text-slate-500">
+                  <Users className="w-10 h-10 mx-auto mb-2 text-slate-600 opacity-50" />
+                  <p className="font-semibold text-slate-400">Không tìm thấy profile nào phù hợp</p>
+                  <p className="text-xs text-slate-600 mt-1">Hãy thử thay đổi từ khóa tìm kiếm hoặc bộ lọc nhóm/trạng thái</p>
                 </td>
               </tr>
             ) : (
-              paginatedProfiles.map((p) => (
+              paginatedProfiles.map(p => (
                 <ProfileTableRow
                   key={p.id}
                   profile={p}
                   isChecked={selectedSet.has(p.id)}
+                  miniBrowserStatus={miniBrowserStatuses[p.id]}
                   onToggleSelectRow={handleToggleSelectRow}
                   onToggleProfileRun={onToggleProfileRun}
                   onOpenMiniBrowser={onOpenMiniBrowser}
-                  onEditProfile={(target) => setEditingProfile(target)}
+                  onFocusMiniBrowser={onFocusMiniBrowser}
+                  onMiniBrowserError={onMiniBrowserError}
+                  onOpenMiniBrowserDetails={onOpenMiniBrowserDetails}
+                  onEditProfile={setEditingProfile}
                   onDeleteSingleProfile={triggerSingleDelete}
                 />
               ))
@@ -684,48 +673,41 @@ export const ProfileManagerView: React.FC<ProfileManagerViewProps> = ({
       </div>
 
       {/* Pagination Footer */}
-      <div className="p-3 bg-slate-950 border-t border-slate-800 flex flex-wrap items-center justify-between gap-3 text-xs shrink-0">
-        <div className="flex items-center space-x-3 text-slate-400">
-          <span>
-            Hiển thị <strong className="text-slate-200 font-mono">{paginatedProfiles.length}</strong> / <strong className="text-slate-200 font-mono">{filteredProfiles.length}</strong> kết quả
-          </span>
-
-          <div className="flex items-center space-x-1">
-            <span>Hiển thị / trang:</span>
+      <div className="p-3 bg-slate-950 border-t border-slate-800 flex flex-wrap items-center justify-between gap-3 text-xs text-slate-400 shrink-0">
+        <div className="flex items-center space-x-3">
+          <span>Hiển thị <strong>{paginatedProfiles.length}</strong> / <strong>{filteredProfiles.length}</strong> profiles</span>
+          <div className="flex items-center space-x-1.5">
+            <span>Hiển thị mỗi trang:</span>
             <select
               value={pageSize}
               onChange={e => {
                 setPageSize(Number(e.target.value));
                 setCurrentPage(1);
               }}
-              className="bg-slate-900 border border-slate-800 text-slate-200 rounded px-2 py-1 text-xs focus:outline-none focus:border-cyan-500 font-mono"
+              className="bg-slate-900 border border-slate-800 rounded px-2 py-0.5 text-slate-200 text-xs focus:outline-none focus:border-cyan-500"
             >
+              <option value={10}>10</option>
               <option value={25}>25</option>
               <option value={50}>50</option>
               <option value={100}>100</option>
-              <option value={200}>200</option>
             </select>
           </div>
         </div>
 
-        {/* Page Nav */}
+        {/* Pagination Page Controls */}
         <div className="flex items-center space-x-2">
+          <span className="mr-2">Trang {safePage} / {totalPages}</span>
           <button
             disabled={safePage <= 1}
             onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
-            className="p-1 bg-slate-900 hover:bg-slate-800 disabled:opacity-40 text-slate-300 rounded border border-slate-800 transition"
+            className="p-1 bg-slate-900 border border-slate-800 rounded text-slate-300 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-slate-800 transition"
           >
             <ChevronLeft className="w-4 h-4" />
           </button>
-
-          <span className="font-mono text-slate-300 font-semibold px-2">
-            Trang {safePage} / {totalPages}
-          </span>
-
           <button
             disabled={safePage >= totalPages}
             onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
-            className="p-1 bg-slate-900 hover:bg-slate-800 disabled:opacity-40 text-slate-300 rounded border border-slate-800 transition"
+            className="p-1 bg-slate-900 border border-slate-800 rounded text-slate-300 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-slate-800 transition"
           >
             <ChevronRight className="w-4 h-4" />
           </button>
@@ -735,27 +717,29 @@ export const ProfileManagerView: React.FC<ProfileManagerViewProps> = ({
       {/* Modals */}
       <EditProfileModal
         isOpen={Boolean(editingProfile)}
-        onClose={() => setEditingProfile(null)}
         profile={editingProfile}
         groups={groups}
         proxies={proxies}
         existingProfiles={profiles}
-        onSubmit={onUpdateProfile}
+        onClose={() => setEditingProfile(null)}
+        onSubmit={async (id, data) => {
+          await onUpdateProfile(id, data);
+        }}
       />
 
       <ConfirmDeleteModal
         isOpen={isConfirmDeleteOpen}
-        onClose={() => setIsConfirmDeleteOpen(false)}
-        onConfirm={handleConfirmDelete}
         targetCount={deleteTargetIds.length}
         profileNames={deleteTargetNames}
+        onClose={() => setIsConfirmDeleteOpen(false)}
+        onConfirm={handleConfirmDelete}
       />
 
       <AssignGroupModal
         isOpen={isAssignGroupOpen}
-        onClose={() => setIsAssignGroupOpen(false)}
         selectedCount={selectedIds.length}
         groups={groups}
+        onClose={() => setIsAssignGroupOpen(false)}
         onSubmit={async (groupName) => {
           await onAssignGroupForSelected(selectedIds, groupName);
         }}
@@ -763,9 +747,9 @@ export const ProfileManagerView: React.FC<ProfileManagerViewProps> = ({
 
       <AssignProxyModal
         isOpen={isAssignProxyOpen}
-        onClose={() => setIsAssignProxyOpen(false)}
         selectedCount={selectedIds.length}
         proxies={proxies}
+        onClose={() => setIsAssignProxyOpen(false)}
         onSubmit={async (proxyId) => {
           await onAssignProxyForSelected(selectedIds, proxyId);
         }}
@@ -773,18 +757,20 @@ export const ProfileManagerView: React.FC<ProfileManagerViewProps> = ({
 
       <ToggleModulesModal
         isOpen={isToggleModulesOpen}
-        onClose={() => setIsToggleModulesOpen(false)}
         selectedCount={selectedIds.length}
-        onSubmit={async (enabledModules) => {
-          await onToggleModulesForSelected(selectedIds, enabledModules);
+        onClose={() => setIsToggleModulesOpen(false)}
+        onSubmit={async (modules) => {
+          await onToggleModulesForSelected(selectedIds, modules);
         }}
       />
 
       <ImportProfilesModal
         isOpen={isImportJsonOpen}
-        onClose={() => setIsImportJsonOpen(false)}
         existingProfiles={profiles}
-        onImportSuccess={onImportProfilesFromJSON}
+        onClose={() => setIsImportJsonOpen(false)}
+        onImportSuccess={async (imported) => {
+          await onImportProfilesFromJSON(imported);
+        }}
       />
 
     </div>

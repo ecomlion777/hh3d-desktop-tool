@@ -37,6 +37,7 @@ export default function App() {
     logs,
     activityConfig,
     generalSettings,
+    miniBrowserStatuses,
     systemStats,
     refreshData,
     createProfile,
@@ -48,6 +49,8 @@ export default function App() {
     importProfiles,
     startProfiles,
     stopProfiles,
+    openMiniBrowser,
+    focusMiniBrowser,
     testProxy,
     testAllProxies,
     addSingleProxy,
@@ -70,6 +73,12 @@ export default function App() {
     saveGeneralSettings,
     clearLogs
   } = useAppBridge();
+
+  // Selected Profile IDs state reported from ProfileManagerView
+  const [selectedProfileIds, setSelectedProfileIds] = useState<string[]>([]);
+
+  // Mini Browser Error state
+  const [miniBrowserError, setMiniBrowserError] = useState<string | null>(null);
 
   // Filters & Search
   const [selectedGroup, setSelectedGroup] = useState<string | null>(null);
@@ -172,11 +181,37 @@ export default function App() {
     }
   };
 
+  // Toolbar Mini Browser Handler - Strict Selection Rules
+  const handleToolbarOpenMiniBrowser = async () => {
+    if (selectedProfileIds.length === 0) {
+      setMiniBrowserError('Hãy chọn một profile');
+      return;
+    }
+    if (selectedProfileIds.length > 1) {
+      setMiniBrowserError('Mini Browser chỉ mở cho một profile mỗi lần');
+      return;
+    }
+
+    const singleId = selectedProfileIds[0];
+    const mbStatus = miniBrowserStatuses[singleId];
+    const mbState = mbStatus?.state || 'closed';
+
+    try {
+      if (mbState === 'opening' || mbState === 'loading' || mbState === 'open') {
+        const focused = await focusMiniBrowser(singleId);
+        if (!focused) {
+          await openMiniBrowser(singleId);
+        }
+      } else {
+        await openMiniBrowser(singleId);
+      }
+    } catch (err: any) {
+      console.error(`Toolbar Mini Browser error for ${singleId}:`, err);
+      setMiniBrowserError(`Không thể mở Mini Browser: ${err?.message || String(err)}`);
+    }
+  };
+
   const runningCount = profiles.filter(p => p.status === 'running').length;
-  const waitingCount = profiles.filter(p => p.status === 'waiting').length;
-  const stoppedCount = profiles.filter(p => p.status === 'stopped').length;
-  const proxyErrorCount = profiles.filter(p => p.status === 'proxy_error').length;
-  const loginRequiredCount = profiles.filter(p => p.status === 'login_required').length;
 
   return (
     <div id="hh3d-app-root" className="h-screen w-screen flex flex-col bg-slate-950 font-sans text-slate-100 overflow-hidden antialiased select-none">
@@ -190,15 +225,28 @@ export default function App() {
         onRunSelectedGroup={handleRunSelectedGroup}
         onStopSelectedGroup={handleStopSelectedGroup}
         onRefreshData={refreshData}
-        onOpenMiniBrowser={() => {
-          const firstRunning = profiles.find(p => p.status === 'running') || profiles[0];
-          if (firstRunning) setMiniBrowserProfile(firstRunning);
-        }}
+        onOpenMiniBrowser={handleToolbarOpenMiniBrowser}
         searchQuery={searchQuery}
         onSearchChange={setSearchQuery}
         runningProfilesCount={runningCount}
         totalProfilesCount={profiles.length}
       />
+
+      {/* Mini Browser Error Banner */}
+      {miniBrowserError && (
+        <div className="bg-rose-950/90 border-b border-rose-800 text-rose-200 px-4 py-2 flex items-center justify-between text-xs font-medium z-50">
+          <div className="flex items-center gap-2">
+            <span className="bg-rose-800 text-white font-bold px-1.5 py-0.5 rounded text-[10px] uppercase">Lỗi Mini Browser</span>
+            <span>{miniBrowserError}</span>
+          </div>
+          <button
+            onClick={() => setMiniBrowserError(null)}
+            className="text-rose-400 hover:text-white px-2 py-0.5 rounded hover:bg-rose-900 transition-colors font-bold"
+          >
+            ✕
+          </button>
+        </div>
+      )}
 
       {/* Main App Body with Left Sidebar & Content Workspace */}
       <div className="flex-1 flex overflow-hidden relative">
@@ -246,7 +294,10 @@ export default function App() {
               onStartSelectedProfiles={startProfiles}
               onStopSelectedProfiles={stopProfiles}
               onDeleteSelectedProfiles={deleteProfiles}
-              onOpenMiniBrowser={(p) => setMiniBrowserProfile(p)}
+              onOpenMiniBrowser={(profileId) => openMiniBrowser(profileId)}
+              onFocusMiniBrowser={(profileId) => focusMiniBrowser(profileId)}
+              onMiniBrowserError={setMiniBrowserError}
+              onOpenMiniBrowserDetails={(profile) => setMiniBrowserProfile(profile)}
               onOpenProfileSettings={(p) => setMiniBrowserProfile(p)}
               onOpenAddProfile={() => setIsAddProfileOpen(true)}
               onUpdateProfile={updateProfile}
@@ -254,6 +305,8 @@ export default function App() {
               onAssignProxyForSelected={assignProxyForProfiles}
               onToggleModulesForSelected={toggleModulesForProfiles}
               onImportProfilesFromJSON={importProfiles}
+              miniBrowserStatuses={miniBrowserStatuses}
+              onSelectionChange={setSelectedProfileIds}
             />
           )}
 
@@ -274,17 +327,17 @@ export default function App() {
               batches={batches}
               profiles={profiles}
               groups={groups}
-              onStartBatch={startBatch}
-              onStopBatch={stopBatch}
-              onResetBatch={resetBatch}
               onCreateBatch={createBatch}
               onUpdateBatch={updateBatch}
               onDeleteBatch={deleteBatch}
+              onStartBatch={startBatch}
+              onStopBatch={stopBatch}
+              onResetBatch={resetBatch}
               onToggleBatch={toggleBatch}
             />
           )}
 
-          {currentTab === 'activity_settings' && activityConfig && (
+          {currentTab === 'activity_settings' && (
             <ActivitySettingsPage
               config={activityConfig}
               onSaveConfig={saveActivityConfig}
@@ -298,55 +351,63 @@ export default function App() {
             />
           )}
 
-          {currentTab === 'general_settings' && generalSettings && (
+          {currentTab === 'general_settings' && (
             <GeneralSettingsPage
-              settings={generalSettings}
+              settings={generalSettings || {
+                theme: 'dark',
+                maxThreads: 40,
+                minimizeToTray: true,
+                autoStartWithSystem: false,
+                ipcMode: 'electron_bridge',
+                proxyTimeout: 15,
+                checkUpdateAuto: true,
+                language: 'vi'
+              }}
               onSaveSettings={saveGeneralSettings}
             />
           )}
         </main>
       </div>
 
-      {/* Summary Status Bar */}
+      {/* Global Status Footer Bar */}
       <AppStatusBar
         totalProfiles={profiles.length}
         runningCount={runningCount}
-        waitingCount={waitingCount}
-        stoppedCount={stoppedCount}
-        proxyErrorCount={proxyErrorCount}
-        loginRequiredCount={loginRequiredCount}
+        waitingCount={profiles.filter(p => p.status === 'waiting').length}
+        stoppedCount={profiles.filter(p => p.status === 'stopped').length}
+        proxyErrorCount={profiles.filter(p => p.status === 'proxy_error').length}
+        loginRequiredCount={profiles.filter(p => p.status === 'login_required').length}
         systemStats={systemStats}
         activeFilterStatus={statusFilter}
-        onFilterStatusChange={(s) => {
-          setStatusFilter(s);
-          if (currentTab !== 'profiles') setCurrentTab('profiles');
-        }}
+        onFilterStatusChange={setStatusFilter}
       />
 
-      {/* Modals */}
-      <MiniBrowserModal
-        profile={miniBrowserProfile}
-        onClose={() => setMiniBrowserProfile(null)}
-        onToggleRun={handleToggleProfileRun}
-      />
+      {/* Interactive Application Modals */}
+      {miniBrowserProfile && (
+        <MiniBrowserModal
+          profile={miniBrowserProfile}
+          onClose={() => setMiniBrowserProfile(null)}
+        />
+      )}
 
       <AddProfileModal
         isOpen={isAddProfileOpen}
-        onClose={() => setIsAddProfileOpen(false)}
         groups={groups}
         proxies={proxies}
+        existingProfiles={profiles}
+        onClose={() => setIsAddProfileOpen(false)}
         onSubmitSingle={handleAddSingleProfile}
         onSubmitBulk={handleAddBulkProfiles}
       />
 
       <AddGroupModal
         isOpen={isAddGroupOpen}
+        groupToEdit={editingGroup}
         onClose={() => {
           setIsAddGroupOpen(false);
           setEditingGroup(null);
         }}
         onSubmit={handleGroupSubmit}
-        groupToEdit={editingGroup}
       />
 
       <ProxyEditModal

@@ -2,7 +2,7 @@
  * AssignGroupModal - Assign group to selected profiles
  */
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { X, FolderPlus, CheckCircle2 } from 'lucide-react';
 import { GroupItem } from '../../types';
 
@@ -21,9 +21,16 @@ export const AssignGroupModal: React.FC<AssignGroupModalProps> = ({
   groups,
   onSubmit
 }) => {
-  if (!isOpen) return null;
-
   const [selectedGroup, setSelectedGroup] = useState(groups[0]?.name || 'Nhóm Chính (Main)');
+
+
+  useEffect(() => {
+    if (isOpen && !groups.some(group => group.name === selectedGroup)) {
+      setSelectedGroup(groups[0]?.name || 'Nhóm Chính (Main)');
+    }
+  }, [isOpen, groups, selectedGroup]);
+
+  if (!isOpen) return null;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -32,7 +39,7 @@ export const AssignGroupModal: React.FC<AssignGroupModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-200 select-none">
+    <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200 select-none">
       <div className="bg-slate-900 border border-slate-700 rounded-lg shadow-2xl w-full max-w-sm overflow-hidden text-slate-200">
         
         {/* Header */}

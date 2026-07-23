@@ -2,7 +2,7 @@
  * AssignProxyModal - Assign proxy to selected profiles
  */
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { X, Network, CheckCircle2 } from 'lucide-react';
 import { ProxyItem } from '../../types';
 
@@ -21,9 +21,16 @@ export const AssignProxyModal: React.FC<AssignProxyModalProps> = ({
   proxies,
   onSubmit
 }) => {
-  if (!isOpen) return null;
-
   const [selectedProxyId, setSelectedProxyId] = useState(proxies[0]?.id || '');
+
+
+  useEffect(() => {
+    if (isOpen && !proxies.some(proxy => proxy.id === selectedProxyId)) {
+      setSelectedProxyId(proxies[0]?.id || '');
+    }
+  }, [isOpen, proxies, selectedProxyId]);
+
+  if (!isOpen) return null;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -32,7 +39,7 @@ export const AssignProxyModal: React.FC<AssignProxyModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-200 select-none">
+    <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200 select-none">
       <div className="bg-slate-900 border border-slate-700 rounded-lg shadow-2xl w-full max-w-sm overflow-hidden text-slate-200">
         
         {/* Header */}

@@ -4,6 +4,8 @@ const path = require('path');
 const JsonDatabase = require('./storage/JsonDatabase.cjs');
 const ProfileRepository = require('./storage/ProfileRepository.cjs');
 const GroupRepository = require('./storage/GroupRepository.cjs');
+const ProfileBrowserManager = require('./browser/ProfileBrowserManager.cjs');
+const { IPC_CHANNELS } = require('./browser/browserConstants.cjs');
 
 // Chỉ cho phép chạy một phiên bản ứng dụng.
 const gotTheLock = app.requestSingleInstanceLock();
@@ -20,6 +22,20 @@ if (!gotTheLock) {
   const profileRepo = new ProfileRepository(db);
   const groupRepo = new GroupRepository(db);
 
+  const devUrl = process.env.VITE_DEV_SERVER_URL;
+  const isDevelopment = Boolean(devUrl);
+
+  // Khởi tạo ProfileBrowserManager
+  const profileBrowserManager = new ProfileBrowserManager({
+    profileRepo,
+    broadcastCallback: (channel, data) => {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send(channel, data);
+      }
+    },
+    isDevelopment
+  });
+
   function ensureDatabaseReady() {
     if (!databaseReady) {
       throw new Error(
@@ -31,7 +47,7 @@ if (!gotTheLock) {
   }
 
   /**
-   * Register IPC Handlers for Storage, Profiles, and Groups
+   * Register IPC Handlers for Storage, Profiles, Groups, and Mini Browser
    */
   function registerIpcHandlers() {
     ipcMain.handle('app:get-versions', () => {
@@ -67,6 +83,15 @@ if (!gotTheLock) {
 
     ipcMain.handle('profiles:delete', async (_event, profileId) => {
       ensureDatabaseReady();
+      if (!profileId || typeof profileId !== 'string') {
+        throw new Error('profileId không hợp lệ.');
+      }
+      const profile = await profileRepo.getProfileById(profileId);
+      if (!profile) {
+        throw new Error(`Profile ID "${profileId}" không tồn tại trong hệ thống.`);
+      }
+      // Ensure browser is closed before deleting profile record
+      await profileBrowserManager.closeProfileBrowser(profileId);
       return await profileRepo.deleteProfile(profileId);
     });
 
@@ -89,6 +114,51 @@ if (!gotTheLock) {
     ipcMain.handle('groups:delete', async (_event, groupId) => {
       ensureDatabaseReady();
       return await groupRepo.deleteGroup(groupId);
+    });
+
+    // Mini Browser IPC
+    ipcMain.handle(IPC_CHANNELS.OPEN, async (_event, profileId) => {
+      ensureDatabaseReady();
+      if (!profileId || typeof profileId !== 'string') {
+        throw new Error('profileId không hợp lệ.');
+      }
+      const profile = await profileRepo.getProfileById(profileId);
+      if (!profile) {
+        throw new Error(`Profile ID "${profileId}" không tồn tại trong hệ thống.`);
+      }
+      return await profileBrowserManager.openProfileBrowser(profile);
+    });
+
+    ipcMain.handle(IPC_CHANNELS.CLOSE, async (_event, profileId) => {
+      return await profileBrowserManager.closeProfileBrowser(profileId);
+    });
+
+    ipcMain.handle(IPC_CHANNELS.FOCUS, async (_event, profileId) => {
+      return await profileBrowserManager.focusProfileBrowser(profileId);
+    });
+
+    ipcMain.handle(IPC_CHANNELS.RELOAD, async (_event, profileId) => {
+      return await profileBrowserManager.reloadProfileBrowser(profileId);
+    });
+
+    ipcMain.handle(IPC_CHANNELS.GET_STATUS, async (_event, profileId) => {
+      return profileBrowserManager.getProfileBrowserStatus(profileId);
+    });
+
+    ipcMain.handle(IPC_CHANNELS.LIST_STATUSES, async () => {
+      return profileBrowserManager.listProfileBrowserStatuses();
+    });
+
+    ipcMain.handle(IPC_CHANNELS.CLEAR_SESSION, async (_event, profileId) => {
+      ensureDatabaseReady();
+      if (!profileId || typeof profileId !== 'string') {
+        throw new Error('profileId không hợp lệ.');
+      }
+      const profile = await profileRepo.getProfileById(profileId);
+      if (!profile) {
+        throw new Error(`Profile ID "${profileId}" không tồn tại trong hệ thống.`);
+      }
+      return await profileBrowserManager.clearProfileSession(profileId);
     });
   }
 
@@ -214,6 +284,20 @@ if (!gotTheLock) {
         createWindow();
       }
     });
+  });
+
+  let isQuitting = false;
+
+  app.on('before-quit', async (event) => {
+    if (isQuitting) return;
+    event.preventDefault();
+    isQuitting = true;
+    try {
+      await profileBrowserManager.closeAllBrowsers();
+    } catch (err) {
+      console.error('[Electron Main] Error closing browsers on quit:', err);
+    }
+    app.quit();
   });
 
   app.on('window-all-closed', () => {

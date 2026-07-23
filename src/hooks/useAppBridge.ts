@@ -14,6 +14,7 @@ import {
   GeneralAppSettings,
   SystemStats
 } from '../types';
+import { MiniBrowserStatus } from '../types/electron';
 import { appBridge } from '../services/appBridgeService';
 
 export function useAppBridge() {
@@ -24,6 +25,7 @@ export function useAppBridge() {
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [activityConfig, setActivityConfig] = useState<ActivityConfig | null>(null);
   const [generalSettings, setGeneralSettings] = useState<GeneralAppSettings | null>(null);
+  const [miniBrowserStatuses, setMiniBrowserStatuses] = useState<Record<string, MiniBrowserStatus>>({});
   const [systemStats, setSystemStats] = useState<SystemStats>({
     cpuUsage: 20,
     ramUsageGb: 4.2,
@@ -34,7 +36,7 @@ export function useAppBridge() {
 
   const refreshData = useCallback(async () => {
     try {
-      const [pList, pxList, gList, bList, lList, acConfig, genSettings, stats] = await Promise.all([
+      const [pList, pxList, gList, bList, lList, acConfig, genSettings, stats, mbStatuses] = await Promise.all([
         appBridge.listProfiles(),
         appBridge.listProxies(),
         appBridge.listGroups ? appBridge.listGroups() : Promise.resolve([]),
@@ -42,7 +44,8 @@ export function useAppBridge() {
         appBridge.getLogs(),
         appBridge.getActivityConfig ? appBridge.getActivityConfig() : Promise.resolve(null),
         appBridge.getGeneralSettings ? appBridge.getGeneralSettings() : Promise.resolve(null),
-        appBridge.getSystemStats ? appBridge.getSystemStats() : Promise.resolve({ cpuUsage: 0, ramUsageGb: 0, ramTotalGb: 16, activeConnections: 0, networkSpeedMbps: 0 })
+        appBridge.getSystemStats ? appBridge.getSystemStats() : Promise.resolve({ cpuUsage: 0, ramUsageGb: 0, ramTotalGb: 16, activeConnections: 0, networkSpeedMbps: 0 }),
+        appBridge.listMiniBrowserStatuses ? appBridge.listMiniBrowserStatuses() : Promise.resolve([])
       ]);
 
       setProfiles(pList);
@@ -53,6 +56,14 @@ export function useAppBridge() {
       setActivityConfig(acConfig);
       setGeneralSettings(genSettings);
       setSystemStats(stats);
+
+      if (mbStatuses) {
+        const mbMap: Record<string, MiniBrowserStatus> = {};
+        for (const statusObj of mbStatuses) {
+          mbMap[statusObj.profileId] = statusObj;
+        }
+        setMiniBrowserStatuses(mbMap);
+      }
     } catch (err) {
       console.error('Error fetching bridge data:', err);
     }
@@ -80,11 +91,19 @@ export function useAppBridge() {
       setSystemStats(updatedStats);
     }) : undefined;
 
+    const unsubMiniBrowser = appBridge.onMiniBrowserStatusChanged ? appBridge.onMiniBrowserStatusChanged(statusObj => {
+      setMiniBrowserStatuses(prev => ({
+        ...prev,
+        [statusObj.profileId]: statusObj
+      }));
+    }) : undefined;
+
     return () => {
       if (unsubProfiles) unsubProfiles();
       if (unsubBatches) unsubBatches();
       if (unsubLogs) unsubLogs();
       if (unsubStats) unsubStats();
+      if (unsubMiniBrowser) unsubMiniBrowser();
     };
   }, [refreshData]);
 
@@ -318,6 +337,42 @@ export function useAppBridge() {
     }
   };
 
+  const openMiniBrowser = async (profileId: string) => {
+    return await appBridge.openMiniBrowser(profileId);
+  };
+
+  const closeMiniBrowser = async (profileId: string): Promise<MiniBrowserStatus> => {
+    if (appBridge.closeMiniBrowser) {
+      return await appBridge.closeMiniBrowser(profileId);
+    }
+    return {
+      profileId,
+      isOpen: false,
+      state: 'closed'
+    };
+  };
+
+  const focusMiniBrowser = async (profileId: string) => {
+    if (appBridge.focusMiniBrowser) {
+      return await appBridge.focusMiniBrowser(profileId);
+    }
+    return false;
+  };
+
+  const reloadMiniBrowser = async (profileId: string) => {
+    if (appBridge.reloadMiniBrowser) {
+      return await appBridge.reloadMiniBrowser(profileId);
+    }
+    return false;
+  };
+
+  const clearMiniBrowserSession = async (profileId: string) => {
+    if (appBridge.clearMiniBrowserSession) {
+      return await appBridge.clearMiniBrowserSession(profileId);
+    }
+    return { success: false, profileId, message: 'API clearMiniBrowserSession không khả dụng.' };
+  };
+
   return {
     profiles,
     groups,
@@ -326,6 +381,7 @@ export function useAppBridge() {
     logs,
     activityConfig,
     generalSettings,
+    miniBrowserStatuses,
     systemStats,
     refreshData,
     createProfile,
@@ -337,6 +393,11 @@ export function useAppBridge() {
     importProfiles,
     startProfiles,
     stopProfiles,
+    openMiniBrowser,
+    closeMiniBrowser,
+    focusMiniBrowser,
+    reloadMiniBrowser,
+    clearMiniBrowserSession,
     testProxy,
     testAllProxies,
     addSingleProxy,

@@ -15,7 +15,9 @@ import {
   LogEntry,
   ActivityConfig,
   GeneralAppSettings,
-  SystemStats
+  SystemStats,
+  MiniBrowserStatus,
+  ClearSessionResult
 } from '../types';
 
 import { DesktopStorageInfo, DesktopVersions } from '../types/electron';
@@ -455,15 +457,109 @@ export class MockAppBridge implements AppBridge {
     return true;
   }
 
-  async openMiniBrowser(profileId: string): Promise<{ success: boolean; url: string }> {
+  private mockMiniBrowserStatuses: Map<string, MiniBrowserStatus> = new Map();
+  private miniBrowserSubscribers: ((status: MiniBrowserStatus) => void)[] = [];
+
+  async openMiniBrowser(profileId: string): Promise<MiniBrowserStatus> {
     const target = this.profiles.find(p => p.id === profileId);
+
     if (!target) {
-      return { success: false, url: '' };
+      throw new Error(`Profile ID "${profileId}" does not exist.`);
     }
-    this.addLogMessage('info', 'MINI_BROWSER', `Mở Cửa Sổ Nhỏ cho Profile: ${target.displayName || target.characterName}`);
+
+    const result: MiniBrowserStatus = {
+      profileId,
+      isOpen: true,
+      state: 'open',
+      currentUrl: 'https://hoathinh3d.co/',
+      title: `HH3D Mini Browser – ${target.displayName || target.characterName} – ${target.uid}`,
+      openedAt: new Date().toISOString()
+    };
+
+    this.mockMiniBrowserStatuses.set(profileId, result);
+    this.miniBrowserSubscribers.forEach(callback => callback({ ...result }));
+    this.addLogMessage('info', 'MINI_BROWSER', `Mở Cửa Sổ Mini Browser cho Profile ID: ${profileId}`);
+
+    return result;
+  }
+
+  async closeMiniBrowser(profileId: string): Promise<MiniBrowserStatus> {
+    const existing = this.mockMiniBrowserStatuses.get(profileId);
+    const target = this.profiles.find(p => p.id === profileId);
+
+    const result: MiniBrowserStatus = {
+      profileId,
+      isOpen: false,
+      state: 'closed',
+      currentUrl: existing?.currentUrl || '',
+      title: existing?.title || (target ? `HH3D Mini Browser – ${target.displayName || target.characterName} – ${target.uid}` : '')
+    };
+
+    this.mockMiniBrowserStatuses.set(profileId, result);
+    this.miniBrowserSubscribers.forEach(cb => cb({ ...result }));
+    this.addLogMessage('info', 'MINI_BROWSER', `Đóng Cửa Sổ Mini Browser của Profile ID: ${profileId}`);
+
+    return result;
+  }
+
+  async focusMiniBrowser(profileId: string): Promise<boolean> {
+    const existing = this.mockMiniBrowserStatuses.get(profileId);
+    if (existing && existing.isOpen) {
+      this.miniBrowserSubscribers.forEach(cb => cb({ ...existing }));
+      return true;
+    }
+    return false;
+  }
+
+  async reloadMiniBrowser(profileId: string): Promise<boolean> {
+    const existing = this.mockMiniBrowserStatuses.get(profileId);
+    if (existing && existing.isOpen) {
+      const loadingObj: MiniBrowserStatus = {
+        ...existing,
+        state: 'loading'
+      };
+      this.miniBrowserSubscribers.forEach(cb => cb({ ...loadingObj }));
+      setTimeout(() => {
+        const readyObj: MiniBrowserStatus = {
+          ...existing,
+          state: 'open'
+        };
+        this.mockMiniBrowserStatuses.set(profileId, readyObj);
+        this.miniBrowserSubscribers.forEach(cb => cb({ ...readyObj }));
+      }, 500);
+      return true;
+    }
+    return false;
+  }
+
+  async getMiniBrowserStatus(profileId: string): Promise<MiniBrowserStatus> {
+    return this.mockMiniBrowserStatuses.get(profileId) || {
+      profileId,
+      isOpen: false,
+      state: 'closed',
+      currentUrl: '',
+      title: ''
+    };
+  }
+
+  async listMiniBrowserStatuses(): Promise<MiniBrowserStatus[]> {
+    return Array.from(this.mockMiniBrowserStatuses.values());
+  }
+
+  async clearMiniBrowserSession(profileId: string): Promise<ClearSessionResult> {
+    await this.closeMiniBrowser(profileId);
+    this.addLogMessage('warn', 'MINI_BROWSER', `Xóa toàn bộ Session Cookies & Cache cho Profile ID: ${profileId}`);
     return {
       success: true,
-      url: `https://game.hoanhoan3d.vn/login?uid=${target.uid}&session_token=mock_token_${Date.now()}`
+      profileId,
+      message: `Session data was cleared for profile "${profileId}".`
+    };
+  }
+
+  onMiniBrowserStatusChanged(callback: (status: MiniBrowserStatus) => void): () => void {
+    this.miniBrowserSubscribers.push(callback);
+    return () => {
+      this.miniBrowserSubscribers = this.miniBrowserSubscribers.filter(cb => cb !== callback);
     };
   }
 
@@ -1121,8 +1217,42 @@ export class ElectronPreloadBridge implements AppBridge {
     throw new Error('API desktopBridge.updateProfile() không khả dụng trong môi trường Electron.');
   }
 
-  async openMiniBrowser(profileId: string): Promise<{ success: boolean; url: string }> {
-    return { success: true, url: 'http://localhost:3000' };
+  private requireMiniBrowserBridge() {
+    if (!this.bridge) {
+      throw new Error(
+        'Electron Mini Browser IPC is unavailable.'
+      );
+    }
+
+    return this.bridge;
+  }
+
+  async openMiniBrowser(profileId: string): Promise<MiniBrowserStatus> {
+    return await this.requireMiniBrowserBridge().openMiniBrowser(profileId);
+  }
+
+  async closeMiniBrowser(profileId: string): Promise<MiniBrowserStatus> {
+    return await this.requireMiniBrowserBridge().closeMiniBrowser(profileId);
+  }
+
+  async focusMiniBrowser(profileId: string): Promise<boolean> {
+    return await this.requireMiniBrowserBridge().focusMiniBrowser(profileId);
+  }
+
+  async reloadMiniBrowser(profileId: string): Promise<boolean> {
+    return await this.requireMiniBrowserBridge().reloadMiniBrowser(profileId);
+  }
+
+  async getMiniBrowserStatus(profileId: string): Promise<MiniBrowserStatus> {
+    return await this.requireMiniBrowserBridge().getMiniBrowserStatus(profileId);
+  }
+
+  async listMiniBrowserStatuses(): Promise<MiniBrowserStatus[]> {
+    return await this.requireMiniBrowserBridge().listMiniBrowserStatuses();
+  }
+
+  async clearMiniBrowserSession(profileId: string): Promise<ClearSessionResult> {
+    return await this.requireMiniBrowserBridge().clearMiniBrowserSession(profileId);
   }
 
   async assignGroupForProfiles(ids: string[], groupName: string): Promise<boolean> {
@@ -1306,6 +1436,9 @@ export class ElectronPreloadBridge implements AppBridge {
   }
   onStatsUpdated(callback: (stats: SystemStats) => void): () => void {
     return this.mockFallback.onStatsUpdated ? this.mockFallback.onStatsUpdated(callback) : () => {};
+  }
+  onMiniBrowserStatusChanged(callback: (status: MiniBrowserStatus) => void): () => void {
+    return this.requireMiniBrowserBridge().onMiniBrowserStatusChanged(callback);
   }
 }
 

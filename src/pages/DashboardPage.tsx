@@ -15,6 +15,8 @@ interface DashboardPageProps {
   onRunGroup: (groupName: string) => void;
   onStopGroup: (groupName: string) => void;
   onOpenMiniBrowser: (profile: Profile) => void;
+  onEditGroup?: (group: GroupItem) => void;
+  onDeleteGroup?: (group: GroupItem) => void;
 }
 
 export const DashboardPage: React.FC<DashboardPageProps> = (props) => {

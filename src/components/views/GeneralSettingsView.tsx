@@ -30,6 +30,44 @@ export const GeneralSettingsView: React.FC<GeneralSettingsViewProps> = ({
   const [storageLoading, setStorageLoading] = useState<boolean>(true);
   const [storageError, setStorageError] = useState<string | null>(null);
 
+  const [openWindowsCount, setOpenWindowsCount] = useState<number>(0);
+
+  useEffect(() => {
+    const statusMap = new Map<string, any>();
+
+    const updateCount = () => {
+      const openCount = Array.from(statusMap.values()).filter(
+        (s: any) => s.isOpen || s.state === 'open' || s.state === 'loading' || s.state === 'opening'
+      ).length;
+      setOpenWindowsCount(openCount);
+    };
+
+    const fetchInitial = async () => {
+      if (appBridge.listMiniBrowserStatuses) {
+        try {
+          const statuses = await appBridge.listMiniBrowserStatuses();
+          if (statuses) {
+            statuses.forEach(s => statusMap.set(s.profileId, s));
+            updateCount();
+          }
+        } catch (err) {
+          console.warn('Could not fetch mini browser statuses:', err);
+        }
+      }
+    };
+
+    fetchInitial();
+
+    const unsub = appBridge.onMiniBrowserStatusChanged ? appBridge.onMiniBrowserStatusChanged(status => {
+      statusMap.set(status.profileId, status);
+      updateCount();
+    }) : undefined;
+
+    return () => {
+      if (unsub) unsub();
+    };
+  }, []);
+
   useEffect(() => {
     if (appBridge.getVersions) {
       appBridge.getVersions().then(v => {
@@ -50,7 +88,8 @@ export const GeneralSettingsView: React.FC<GeneralSettingsViewProps> = ({
         .then(info => {
           setStorageInfo(info);
           setStorageError(null);
-          if (info && info.dataDirectory && info.dataDirectory !== 'Web LocalStorage (Browser Simulator)') {
+          const dir = info?.dataDirectory || info?.dataDir;
+          if (info && dir && dir !== 'Web LocalStorage (Browser Simulator)') {
             setIsElectronEnv(true);
           }
         })
@@ -287,10 +326,47 @@ export const GeneralSettingsView: React.FC<GeneralSettingsViewProps> = ({
             <div className="p-3 bg-slate-950 rounded border border-slate-800 text-slate-400 text-[11px] space-y-1">
               <p className="font-medium text-slate-300">Đang chạy ở chế độ Web Preview Browser (Simulated Storage)</p>
               <p className="text-slate-500">
-                Khi khởi chạy dưới dạng ứng dụng Electron Desktop Shell (`npm run electron:dev` hoặc `npm run electron:start`), dữ liệu profile và nhóm sẽ tự động được ghi an toàn xuống file <code className="text-cyan-400">app-data.json</code> tại thư mục <code className="text-cyan-400">%APPDATA%/userData/hh3d-data/</code>.
+                Khi khởi chạy dưới dạng ứng dụng Electron Desktop Shell (`npm run electron:dev` hoặc `npm run electron:start`), dữ liệu profile và nhóm được ghi an toàn xuống file <code className="text-cyan-400">app-data.json</code>. Xem đường dẫn chính xác tại mục <code className="text-cyan-400">Data directory</code> phía trên.
               </p>
             </div>
           )}
+        </div>
+
+        {/* Mini Browser Session Card (Phase 04A) */}
+        <div className="md:col-span-2 bg-slate-900 border border-slate-800 rounded-lg p-4 space-y-3">
+          <h3 className="font-bold text-slate-200 uppercase text-[11px] tracking-wider border-b border-slate-800 pb-2 text-purple-400 flex items-center justify-between">
+            <span className="flex items-center gap-1.5">
+              <Info className="w-4 h-4 text-purple-400" />
+              <span>Trạng Thái Trình Duyệt Mini Browser (Mini Browser Session - Phase 04A)</span>
+            </span>
+            <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-purple-950 text-purple-300 border border-purple-800">
+              Deterministic Partition per Profile
+            </span>
+          </h3>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 pt-1">
+            <div className="bg-slate-950 p-3 rounded border border-slate-800">
+              <span className="text-[10px] text-slate-500 uppercase font-semibold block">Session Isolation</span>
+              <span className="font-mono font-bold text-xs sm:text-sm text-emerald-400">Enabled</span>
+            </div>
+            <div className="bg-slate-950 p-3 rounded border border-slate-800">
+              <span className="text-[10px] text-slate-500 uppercase font-semibold block">Số Cửa Sổ Đang Mở</span>
+              <span className="font-mono font-bold text-xs sm:text-sm text-emerald-400">{openWindowsCount} Cửa Sổ Mini Browser</span>
+            </div>
+            <div className="bg-slate-950 p-3 rounded border border-slate-800">
+              <span className="text-[10px] text-slate-500 uppercase font-semibold block">Target URL</span>
+              <span className="font-mono font-bold text-xs sm:text-sm text-cyan-400 truncate block" title="https://hoathinh3d.co/">https://hoathinh3d.co/</span>
+            </div>
+            <div className="bg-slate-950 p-3 rounded border border-slate-800">
+              <span className="text-[10px] text-slate-500 uppercase font-semibold block">Định Dạng Partition Mode</span>
+              <span className="font-mono text-[11px] text-purple-300 truncate block" title="persist:hh3d-profile-<safeSlug>-<idHash>">
+                persist:hh3d-profile-&lt;slug&gt;-&lt;hash&gt;
+              </span>
+            </div>
+          </div>
+          <p className="text-[11px] text-slate-400 font-mono bg-slate-950/60 p-2 rounded border border-slate-800/80">
+            Note: Cookies and browser session data are not stored in app-data.json.
+          </p>
         </div>
 
         {/* Full Width Card: App & System Info */}

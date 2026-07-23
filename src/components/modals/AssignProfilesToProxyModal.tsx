@@ -2,7 +2,7 @@
  * AssignProfilesToProxyModal - Assign multiple profiles to a specific proxy
  */
 
-import React, { useState, useMemo } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { X, Network, Search, CheckCircle2, AlertTriangle, Users } from 'lucide-react';
 import { ProxyItem, Profile } from '../../types';
 
@@ -21,15 +21,19 @@ export const AssignProfilesToProxyModal: React.FC<AssignProfilesToProxyModalProp
   profiles,
   onSubmit
 }) => {
-  if (!isOpen || !proxy) return null;
-
   // Initialize with profile IDs that currently use this proxy
-  const [selectedProfileIds, setSelectedProfileIds] = useState<string[]>(() => {
-    return profiles.filter(p => p.proxyId === proxy.id).map(p => p.id);
-  });
+  const [selectedProfileIds, setSelectedProfileIds] = useState<string[]>([]);
 
   const [searchQuery, setSearchQuery] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+
+  useEffect(() => {
+    if (isOpen && proxy) {
+      setSelectedProfileIds(profiles.filter(profile => profile.proxyId === proxy.id).map(profile => profile.id));
+      setSearchQuery('');
+    }
+  }, [isOpen, proxy, profiles]);
 
   // Filter profiles based on search query
   const filteredProfiles = useMemo(() => {
@@ -63,6 +67,8 @@ export const AssignProfilesToProxyModal: React.FC<AssignProfilesToProxyModalProp
     return profiles.filter(p => selectedProfileIds.includes(p.id) && p.status === 'running').length;
   }, [profiles, selectedProfileIds]);
 
+  if (!isOpen || !proxy) return null;
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSubmitting(true);
@@ -75,7 +81,7 @@ export const AssignProfilesToProxyModal: React.FC<AssignProfilesToProxyModalProp
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-200 select-none">
+    <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200 select-none">
       <div className="bg-slate-900 border border-slate-700 rounded-lg shadow-2xl w-full max-w-xl overflow-hidden text-slate-200 flex flex-col max-h-[90vh]">
         
         {/* Header */}

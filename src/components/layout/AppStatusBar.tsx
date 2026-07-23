@@ -17,29 +17,38 @@ import {
 import { SystemStats } from '../../types';
 
 interface AppStatusBarProps {
-  totalProfiles: number;
-  runningCount: number;
-  waitingCount: number;
-  stoppedCount: number;
-  proxyErrorCount: number;
-  loginRequiredCount: number;
-  systemStats: SystemStats;
-  activeFilterStatus: string | null;
-  onFilterStatusChange: (status: string | null) => void;
+  totalProfiles?: number;
+  runningCount?: number;
+  waitingCount?: number;
+  stoppedCount?: number;
+  proxyErrorCount?: number;
+  loginRequiredCount?: number;
+  systemStats?: SystemStats;
+  activeFilterStatus?: string | null;
+  onFilterStatusChange?: (status: string | null) => void;
+  runningProfilesCount?: number;
+  totalProfilesCount?: number;
+  activeTab?: string;
 }
 
 export const AppStatusBar: React.FC<AppStatusBarProps> = ({
   totalProfiles,
   runningCount,
-  waitingCount,
-  stoppedCount,
-  proxyErrorCount,
-  loginRequiredCount,
+  waitingCount = 0,
+  stoppedCount = 0,
+  proxyErrorCount = 0,
+  loginRequiredCount = 0,
   systemStats,
-  activeFilterStatus,
-  onFilterStatusChange
+  activeFilterStatus = null,
+  onFilterStatusChange,
+  runningProfilesCount,
+  totalProfilesCount
 }) => {
   const [timeStr, setTimeStr] = useState<string>('');
+
+  const actualTotal = totalProfiles ?? totalProfilesCount ?? 0;
+  const actualRunning = runningCount ?? runningProfilesCount ?? 0;
+  const netSpeed = systemStats?.networkSpeedMbps ?? 18.5;
 
   useEffect(() => {
     const updateClock = () => {
@@ -50,12 +59,18 @@ export const AppStatusBar: React.FC<AppStatusBarProps> = ({
     return () => clearInterval(interval);
   }, []);
 
+  const handleFilterClick = (status: string | null) => {
+    if (onFilterStatusChange) {
+      onFilterStatusChange(status);
+    }
+  };
+
   return (
     <footer id="app-status-bar" className="h-8 bg-slate-950 border-t border-slate-800 text-slate-300 text-xs px-3 flex items-center justify-between shrink-0 select-none overflow-x-auto custom-scrollbar">
       {/* Left Summary Counts Pill Group */}
       <div className="flex items-center space-x-3 text-[11px] shrink-0">
         <button
-          onClick={() => onFilterStatusChange(null)}
+          onClick={() => handleFilterClick(null)}
           className={`flex items-center space-x-1.5 px-2 py-0.5 rounded transition ${
             activeFilterStatus === null
               ? 'bg-slate-800 text-white font-medium ring-1 ring-slate-700'
@@ -64,14 +79,14 @@ export const AppStatusBar: React.FC<AppStatusBarProps> = ({
           title="Xem tất cả profile"
         >
           <Users className="w-3 h-3 text-cyan-400" />
-          <span>Tổng: <strong className="text-slate-100 font-mono">{totalProfiles}</strong></span>
+          <span>Tổng: <strong className="text-slate-100 font-mono">{actualTotal}</strong></span>
         </button>
 
         <span className="text-slate-800">|</span>
 
         {/* Running */}
         <button
-          onClick={() => onFilterStatusChange('running')}
+          onClick={() => handleFilterClick('running')}
           className={`flex items-center space-x-1.5 px-2 py-0.5 rounded transition ${
             activeFilterStatus === 'running'
               ? 'bg-emerald-950/80 text-emerald-300 font-medium ring-1 ring-emerald-500/40'
@@ -80,12 +95,12 @@ export const AppStatusBar: React.FC<AppStatusBarProps> = ({
           title="Lọc danh sách Đang Chạy"
         >
           <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
-          <span>Đang chạy: <strong className="text-emerald-400 font-mono">{runningCount}</strong></span>
+          <span>Đang chạy: <strong className="text-emerald-400 font-mono">{actualRunning}</strong></span>
         </button>
 
         {/* Waiting */}
         <button
-          onClick={() => onFilterStatusChange('waiting')}
+          onClick={() => handleFilterClick('waiting')}
           className={`flex items-center space-x-1.5 px-2 py-0.5 rounded transition ${
             activeFilterStatus === 'waiting'
               ? 'bg-amber-950/80 text-amber-300 font-medium ring-1 ring-amber-500/40'
@@ -99,7 +114,7 @@ export const AppStatusBar: React.FC<AppStatusBarProps> = ({
 
         {/* Proxy Error */}
         <button
-          onClick={() => onFilterStatusChange('proxy_error')}
+          onClick={() => handleFilterClick('proxy_error')}
           className={`flex items-center space-x-1.5 px-2 py-0.5 rounded transition ${
             activeFilterStatus === 'proxy_error'
               ? 'bg-rose-950/80 text-rose-300 font-medium ring-1 ring-rose-500/40'
@@ -113,7 +128,7 @@ export const AppStatusBar: React.FC<AppStatusBarProps> = ({
 
         {/* Login Required */}
         <button
-          onClick={() => onFilterStatusChange('login_required')}
+          onClick={() => handleFilterClick('login_required')}
           className={`flex items-center space-x-1.5 px-2 py-0.5 rounded transition ${
             activeFilterStatus === 'login_required'
               ? 'bg-purple-950/80 text-purple-300 font-medium ring-1 ring-purple-500/40'
@@ -130,7 +145,7 @@ export const AppStatusBar: React.FC<AppStatusBarProps> = ({
       <div className="flex items-center space-x-4 text-[11px] text-slate-400 shrink-0">
         <div className="flex items-center space-x-1.5">
           <Wifi className="w-3 h-3 text-emerald-400" />
-          <span className="font-mono text-slate-300">{systemStats.networkSpeedMbps} MB/s</span>
+          <span className="font-mono text-slate-300">{netSpeed} MB/s</span>
         </div>
 
         <span className="text-slate-800">|</span>

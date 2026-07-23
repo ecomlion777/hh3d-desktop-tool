@@ -20,8 +20,6 @@ export const ProxyEditModal: React.FC<ProxyEditModalProps> = ({
   onSubmitSingleProxy,
   onSubmitBulkProxies
 }) => {
-  if (!isOpen) return null;
-
   const [activeTab, setActiveTab] = useState<'single' | 'bulk'>('single');
 
   // Single Proxy Form State
@@ -46,6 +44,8 @@ export const ProxyEditModal: React.FC<ProxyEditModalProps> = ({
   const rawLinesCount = useMemo(() => {
     return rawText.split('\n').filter(l => l.trim().length > 0).length;
   }, [rawText]);
+
+  if (!isOpen) return null;
 
   const handleSingleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -90,7 +90,7 @@ export const ProxyEditModal: React.FC<ProxyEditModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-200 select-none">
+    <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200 select-none">
       <div className="bg-slate-900 border border-slate-700 rounded-lg shadow-2xl w-full max-w-xl overflow-hidden text-slate-200 flex flex-col">
         
         {/* Header */}

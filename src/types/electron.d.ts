@@ -1,5 +1,3 @@
-import { Profile, GroupItem } from '../shared';
-
 export interface DesktopVersions {
   appVersion: string;
   electronVersion: string;
@@ -8,11 +6,30 @@ export interface DesktopVersions {
 }
 
 export interface DesktopStorageInfo {
-  dataDirectory: string;
-  dataFile: string;
-  schemaVersion: number;
+  dataDir?: string;
+  dataDirectory?: string;
+  filePath?: string;
+  dataFile?: string;
+  schemaVersion?: number;
   profileCount: number;
   groupCount: number;
+}
+
+export interface MiniBrowserStatus {
+  profileId: string;
+  isOpen: boolean;
+  state: 'closed' | 'opening' | 'loading' | 'open' | 'error';
+  partition?: string;
+  currentUrl?: string;
+  title?: string;
+  openedAt?: string;
+  error?: string;
+}
+
+export interface ClearSessionResult {
+  success: boolean;
+  profileId: string;
+  message: string;
 }
 
 export interface DesktopBridgeAPI {
@@ -20,16 +37,26 @@ export interface DesktopBridgeAPI {
   getStorageInfo: () => Promise<DesktopStorageInfo>;
 
   // Profiles
-  listProfiles: () => Promise<Profile[]>;
-  createProfile: (profile: Partial<Profile>) => Promise<Profile>;
-  updateProfile: (profileId: string, changes: Partial<Profile>) => Promise<Profile | null>;
+  listProfiles: () => Promise<any[]>;
+  createProfile: (profile: Partial<any>) => Promise<any>;
+  updateProfile: (profileId: string, changes: Partial<any>) => Promise<any | null>;
   deleteProfile: (profileId: string) => Promise<boolean>;
 
   // Groups
-  listGroups: () => Promise<GroupItem[]>;
-  createGroup: (group: Partial<GroupItem>) => Promise<GroupItem>;
-  updateGroup: (groupId: string, changes: Partial<GroupItem>) => Promise<GroupItem | null>;
+  listGroups: () => Promise<any[]>;
+  createGroup: (group: Partial<any>) => Promise<any>;
+  updateGroup: (groupId: string, changes: Partial<any>) => Promise<any | null>;
   deleteGroup: (groupId: string) => Promise<boolean>;
+
+  // Mini Browser
+  openMiniBrowser: (profileId: string) => Promise<MiniBrowserStatus>;
+  closeMiniBrowser: (profileId: string) => Promise<MiniBrowserStatus>;
+  focusMiniBrowser: (profileId: string) => Promise<boolean>;
+  reloadMiniBrowser: (profileId: string) => Promise<boolean>;
+  getMiniBrowserStatus: (profileId: string) => Promise<MiniBrowserStatus>;
+  listMiniBrowserStatuses: () => Promise<MiniBrowserStatus[]>;
+  clearMiniBrowserSession: (profileId: string) => Promise<ClearSessionResult>;
+  onMiniBrowserStatusChanged: (callback: (status: MiniBrowserStatus) => void) => () => void;
 }
 
 declare global {
