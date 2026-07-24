@@ -18,7 +18,9 @@ import {
   ProxyImportItem,
   ProxyTestResult,
   ProfileProxyState,
-  ProxyOneToOneAssignmentResult
+  ProxyOneToOneAssignmentResult,
+  ProfileWorkerStatus,
+  WorkerSummary
 } from '../types';
 import { MiniBrowserStatus } from '../types/electron';
 import { appBridge } from '../services/appBridgeService';
@@ -33,6 +35,8 @@ export function useAppBridge() {
   const [generalSettings, setGeneralSettings] = useState<GeneralAppSettings | null>(null);
   const [miniBrowserStatuses, setMiniBrowserStatuses] = useState<Record<string, MiniBrowserStatus>>({});
   const [profileProxyStates, setProfileProxyStates] = useState<Record<string, ProfileProxyState>>({});
+  const [workerStatuses, setWorkerStatuses] = useState<Record<string, ProfileWorkerStatus>>({});
+  const [workerSummary, setWorkerSummary] = useState<WorkerSummary | null>(null);
   const [systemStats, setSystemStats] = useState<SystemStats>({
     cpuUsage: 20,
     ramUsageGb: 4.2,
@@ -43,7 +47,7 @@ export function useAppBridge() {
 
   const refreshData = useCallback(async () => {
     try {
-      const [pList, pxList, gList, bList, lList, acConfig, genSettings, stats, mbStatuses] = await Promise.all([
+      const [pList, pxList, gList, bList, lList, acConfig, genSettings, stats, mbStatuses, wkStatuses, wkSummary] = await Promise.all([
         appBridge.listProfiles(),
         appBridge.listProxies(),
         appBridge.listGroups ? appBridge.listGroups() : Promise.resolve([]),
@@ -52,7 +56,9 @@ export function useAppBridge() {
         appBridge.getActivityConfig ? appBridge.getActivityConfig() : Promise.resolve(null),
         appBridge.getGeneralSettings ? appBridge.getGeneralSettings() : Promise.resolve(null),
         appBridge.getSystemStats ? appBridge.getSystemStats() : Promise.resolve({ cpuUsage: 0, ramUsageGb: 0, ramTotalGb: 16, activeConnections: 0, networkSpeedMbps: 0 }),
-        appBridge.listMiniBrowserStatuses ? appBridge.listMiniBrowserStatuses() : Promise.resolve([])
+        appBridge.listMiniBrowserStatuses ? appBridge.listMiniBrowserStatuses() : Promise.resolve([]),
+        appBridge.listWorkerStatuses ? appBridge.listWorkerStatuses() : Promise.resolve([]),
+        appBridge.getWorkerSummary ? appBridge.getWorkerSummary() : Promise.resolve(null)
       ]);
 
       setProfiles(pList);
@@ -71,6 +77,15 @@ export function useAppBridge() {
         }
         setMiniBrowserStatuses(mbMap);
       }
+
+      if (wkStatuses) {
+        const workerMap: Record<string, ProfileWorkerStatus> = {};
+        for (const statusObj of wkStatuses) {
+          workerMap[statusObj.profileId] = statusObj;
+        }
+        setWorkerStatuses(workerMap);
+      }
+      setWorkerSummary(wkSummary);
     } catch (err) {
       console.error('Error fetching bridge data:', err);
     }
@@ -125,6 +140,14 @@ export function useAppBridge() {
       setProfileProxyStates(prev => ({ ...prev, [state.profileId]: state }));
     }) : undefined;
 
+    const unsubWorkerStatus = appBridge.onWorkerStatusChanged ? appBridge.onWorkerStatusChanged(status => {
+      setWorkerStatuses(prev => ({ ...prev, [status.profileId]: status }));
+    }) : undefined;
+
+    const unsubWorkerSummary = appBridge.onWorkerSummaryChanged ? appBridge.onWorkerSummaryChanged(summary => {
+      setWorkerSummary(summary);
+    }) : undefined;
+
     return () => {
       if (unsubProfiles) unsubProfiles();
       if (unsubBatches) unsubBatches();
@@ -134,6 +157,8 @@ export function useAppBridge() {
       if (unsubProxies) unsubProxies();
       if (unsubProxyTest) unsubProxyTest();
       if (unsubProfileProxy) unsubProfileProxy();
+      if (unsubWorkerStatus) unsubWorkerStatus();
+      if (unsubWorkerSummary) unsubWorkerSummary();
     };
   }, [refreshData]);
 
@@ -470,6 +495,8 @@ export function useAppBridge() {
     generalSettings,
     miniBrowserStatuses,
     profileProxyStates,
+    workerStatuses,
+    workerSummary,
     systemStats,
     refreshData,
     createProfile,

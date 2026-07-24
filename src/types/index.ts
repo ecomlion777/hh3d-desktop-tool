@@ -18,7 +18,12 @@ import {
   ActivityConfig,
   GeneralAppSettings,
   SystemStats,
-  BatchStatus
+  BatchStatus,
+  ProfileWorkerStatus,
+  WorkerSummary,
+  WorkerStartResult,
+  WorkerStopResult,
+  WorkerStartOptions
 } from '../shared';
 import {
   MiniBrowserStatus,
@@ -42,6 +47,11 @@ export interface AppBridge {
   deleteProfile(ids: string[]): Promise<boolean>;
   startProfile(ids: string[]): Promise<boolean>;
   stopProfile(ids: string[]): Promise<boolean>;
+  startWorkers?(profileIds: string[], options?: WorkerStartOptions): Promise<WorkerStartResult>;
+  stopWorkers?(profileIds: string[]): Promise<WorkerStopResult>;
+  getWorkerStatus?(profileId: string): Promise<ProfileWorkerStatus>;
+  listWorkerStatuses?(): Promise<ProfileWorkerStatus[]>;
+  getWorkerSummary?(): Promise<WorkerSummary>;
   openMiniBrowser(profileId: string): Promise<MiniBrowserStatus>;
   closeMiniBrowser?(profileId: string): Promise<MiniBrowserStatus>;
   focusMiniBrowser?(profileId: string): Promise<boolean>;
@@ -114,4 +124,6 @@ export interface AppBridge {
   onProxiesChanged?(callback: (proxies: ProxyItem[]) => void): () => void;
   onProxyTestStatusChanged?(callback: (result: ProxyTestResult) => void): () => void;
   onProfileProxyStateChanged?(callback: (state: ProfileProxyState) => void): () => void;
+  onWorkerStatusChanged?(callback: (status: ProfileWorkerStatus) => void): () => void;
+  onWorkerSummaryChanged?(callback: (summary: WorkerSummary) => void): () => void;
 }

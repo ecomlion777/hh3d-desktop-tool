@@ -86,8 +86,10 @@ async function main() {
 
   const db = new JsonDatabase();
   await db.init();
-  assert.equal(db.getData().schemaVersion, 2);
+  assert.equal(db.getData().schemaVersion, 3);
   assert.deepEqual(db.getData().proxies, []);
+  assert.deepEqual(db.getData().batches, []);
+  assert.deepEqual(db.getData().logs, []);
   assert.equal(db.getData().profiles[0].proxyId, null);
   assert.equal(db.getData().profiles[0].legacyProxyId, 'proxy_1');
 

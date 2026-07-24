@@ -50,6 +50,67 @@ export interface Profile {
   isSelected?: boolean;
 }
 
+
+export type WorkerRuntimeState =
+  | 'queued'
+  | 'starting'
+  | 'running'
+  | 'stopping'
+  | 'stopped'
+  | 'error'
+  | 'proxy_error'
+  | 'login_required';
+
+export interface ProfileWorkerStatus {
+  profileId: string;
+  state: WorkerRuntimeState;
+  taskCode: 'session_check';
+  batchId?: string;
+  queuedAt?: string;
+  startedAt?: string;
+  lastHeartbeatAt?: string;
+  stoppedAt?: string;
+  requestCount: number;
+  successCount: number;
+  failureCount: number;
+  retryCount: number;
+  lastHttpStatus?: number;
+  lastDurationMs?: number;
+  error?: string;
+  updatedAt: string;
+}
+
+export interface WorkerSummary {
+  maxConcurrency: number;
+  activeCount: number;
+  queuedCount: number;
+  runningCount: number;
+  stoppedCount: number;
+  errorCount: number;
+  totalTracked: number;
+  updatedAt: string;
+}
+
+export interface WorkerStartResult {
+  requested: number;
+  accepted: number;
+  skipped: number;
+  acceptedProfileIds: string[];
+  summary: WorkerSummary;
+}
+
+export interface WorkerStopResult {
+  stopped: number;
+  profileIds: string[];
+  summary: WorkerSummary;
+}
+
+export interface WorkerStartOptions {
+  batchId?: string;
+  activityType?: string;
+  concurrency?: number;
+}
+
 /**
  * Real Proxy Manager public models. Secrets never enter these types.
  */

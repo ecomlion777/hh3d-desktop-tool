@@ -10,6 +10,13 @@ const ProxySecretStore = require('./proxy/ProxySecretStore.cjs');
 const ProxyRepository = require('./proxy/ProxyRepository.cjs');
 const ProxySessionManager = require('./proxy/ProxySessionManager.cjs');
 const ProxyTestService = require('./proxy/ProxyTestService.cjs');
+const WorkerLogRepository = require('./worker/WorkerLogRepository.cjs');
+const WorkerSettingsRepository = require('./worker/WorkerSettingsRepository.cjs');
+const BatchRepository = require('./worker/BatchRepository.cjs');
+const WorkerHttpClient = require('./worker/WorkerHttpClient.cjs');
+const ProfileWorkerManager = require('./worker/ProfileWorkerManager.cjs');
+const SystemStatsService = require('./worker/SystemStatsService.cjs');
+const { WORKER_IPC_CHANNELS } = require('./worker/workerConstants.cjs');
 
 const gotTheLock = app.requestSingleInstanceLock();
 
@@ -21,6 +28,8 @@ if (!gotTheLock) {
   let databaseInitError = null;
   let proxyServicesReady = false;
   let proxyServicesInitError = null;
+  let workerServicesReady = false;
+  let workerServicesInitError = null;
 
   const db = new JsonDatabase();
   const profileRepo = new ProfileRepository(db);
@@ -59,6 +68,26 @@ if (!gotTheLock) {
     timeoutMs: 15000
   });
 
+  const workerLogRepository = new WorkerLogRepository(db);
+  const workerSettingsRepository = new WorkerSettingsRepository(db);
+  const batchRepository = new BatchRepository(db);
+  const workerHttpClient = new WorkerHttpClient({
+    proxySessionManager,
+    settingsRepository: workerSettingsRepository
+  });
+  const workerManager = new ProfileWorkerManager({
+    profileRepo,
+    httpClient: workerHttpClient,
+    logRepository: workerLogRepository,
+    batchRepository,
+    settingsRepository: workerSettingsRepository,
+    broadcastCallback: broadcast
+  });
+  const systemStatsService = new SystemStatsService({
+    workerManager,
+    broadcastCallback: broadcast
+  });
+
   function ensureDatabaseReady() {
     if (!databaseReady) {
       throw new Error(
@@ -76,6 +105,15 @@ if (!gotTheLock) {
     }
   }
 
+  function ensureWorkerServicesReady() {
+    ensureProxyServicesReady();
+    if (!workerServicesReady) {
+      throw new Error(
+        `Worker Services chưa sẵn sàng: ${workerServicesInitError?.message || 'Unknown initialization error'}`
+      );
+    }
+  }
+
   async function listSanitizedProxies() {
     return proxyRepository.listProxies(proxyTestService.getRuntimeResults());
   }
@@ -89,6 +127,14 @@ if (!gotTheLock) {
     await Promise.all(uniqueIds.map(profileId =>
       profileBrowserManager.closeProfileBrowser(profileId)
     ));
+  }
+
+  async function stopWorkersAndCloseBrowsers(profileIds, reason = 'network-change') {
+    const uniqueIds = Array.from(new Set(profileIds || []));
+    if (workerServicesReady && uniqueIds.length > 0) {
+      await workerManager.stopProfiles(uniqueIds, reason);
+    }
+    await closeBrowsers(uniqueIds);
   }
 
   function getAssignableProxy(proxyId) {
@@ -166,6 +212,9 @@ if (!gotTheLock) {
       const assignedProxy = hasProxyChange ? getAssignableProxy(changes.proxyId) : undefined;
       const proxyChanged = hasProxyChange && (assignedProxy?.id || null) !== existing.proxyId;
       if (proxyChanged) {
+        if (workerServicesReady) {
+          await workerManager.stopProfiles([profileId], 'proxy-change');
+        }
         await profileBrowserManager.closeProfileBrowser(profileId);
       }
 
@@ -188,6 +237,9 @@ if (!gotTheLock) {
       ensureDatabaseReady();
       const profile = await profileRepo.getProfileById(profileId);
       if (!profile) throw new Error(`Profile ID "${profileId}" không tồn tại.`);
+      if (workerServicesReady) {
+        await workerManager.stopProfiles([profileId], 'profile-delete');
+      }
       await profileBrowserManager.closeProfileBrowser(profileId);
       proxySessionManager.clearRuntimeState(profileId);
       return profileRepo.deleteProfile(profileId);
@@ -253,7 +305,7 @@ if (!gotTheLock) {
         ? await proxyRepository.getProfilesUsingProxy(proxyId)
         : [];
       if (shouldRefreshSessions) {
-        await closeBrowsers(assigned.map(profile => profile.id));
+        await stopWorkersAndCloseBrowsers(assigned.map(profile => profile.id), 'proxy-update');
       }
       const result = await proxyRepository.updateProxy(proxyId, changes);
       if (shouldRefreshSessions) {
@@ -268,7 +320,7 @@ if (!gotTheLock) {
     ipcMain.handle('proxies:delete', async (_event, proxyId) => {
       ensureProxyServicesReady();
       const assigned = await proxyRepository.getProfilesUsingProxy(proxyId);
-      await closeBrowsers(assigned.map(profile => profile.id));
+      await stopWorkersAndCloseBrowsers(assigned.map(profile => profile.id), 'proxy-update');
       const result = await proxyRepository.deleteProxy(proxyId);
       for (const profile of assigned) {
         await applyProfileNetworkSafely(profile.id);
@@ -300,7 +352,7 @@ if (!gotTheLock) {
 
     ipcMain.handle('proxies:assign-profiles', async (_event, profileIds, proxyId) => {
       ensureProxyServicesReady();
-      await closeBrowsers(profileIds);
+      await stopWorkersAndCloseBrowsers(profileIds, 'proxy-assignment');
       const updated = await proxyRepository.assignProxyToProfiles(profileIds, proxyId);
       const states = [];
       for (const profileId of profileIds) {
@@ -312,7 +364,7 @@ if (!gotTheLock) {
 
     ipcMain.handle('proxies:assign-one-to-one', async (_event, profileIds, proxyIds) => {
       ensureProxyServicesReady();
-      await closeBrowsers(profileIds);
+      await stopWorkersAndCloseBrowsers(profileIds, 'proxy-assignment');
 
       const result = await proxyRepository.assignProxiesOneToOne(profileIds, proxyIds);
       const states = result.assignments.map(assignment => {
@@ -340,7 +392,7 @@ if (!gotTheLock) {
         ...currentlyAssigned.map(profile => profile.id),
         ...(profileIds || [])
       ]));
-      await closeBrowsers(affectedIds);
+      await stopWorkersAndCloseBrowsers(affectedIds, 'proxy-assignment');
       const updated = await proxyRepository.replaceProfilesForProxy(proxyId, profileIds);
       const states = [];
       for (const profileId of affectedIds) {
@@ -352,7 +404,7 @@ if (!gotTheLock) {
 
     ipcMain.handle('proxies:unassign-profiles', async (_event, profileIds) => {
       ensureProxyServicesReady();
-      await closeBrowsers(profileIds);
+      await stopWorkersAndCloseBrowsers(profileIds, 'proxy-assignment');
       const updated = await proxyRepository.unassignProxyFromProfiles(profileIds);
       const states = [];
       for (const profileId of profileIds) {
@@ -387,6 +439,135 @@ if (!gotTheLock) {
         ...secretInfo
       };
     });
+    // Phase 06A Worker Core IPC
+    ipcMain.handle(WORKER_IPC_CHANNELS.START_PROFILES, async (_event, profileIds, options) => {
+      ensureWorkerServicesReady();
+      return workerManager.startProfiles(profileIds, options || {});
+    });
+
+    ipcMain.handle(WORKER_IPC_CHANNELS.STOP_PROFILES, async (_event, profileIds) => {
+      ensureWorkerServicesReady();
+      return workerManager.stopProfiles(profileIds, 'user');
+    });
+
+    ipcMain.handle(WORKER_IPC_CHANNELS.GET_STATUS, async (_event, profileId) => {
+      ensureWorkerServicesReady();
+      return workerManager.getStatus(profileId);
+    });
+
+    ipcMain.handle(WORKER_IPC_CHANNELS.LIST_STATUSES, async () => {
+      ensureWorkerServicesReady();
+      return workerManager.listStatuses();
+    });
+
+    ipcMain.handle(WORKER_IPC_CHANNELS.GET_SUMMARY, async () => {
+      ensureWorkerServicesReady();
+      return workerManager.getSummary();
+    });
+
+    ipcMain.handle(WORKER_IPC_CHANNELS.RUN_GROUP, async (_event, groupIdOrName) => {
+      ensureWorkerServicesReady();
+      return workerManager.startGroup(groupIdOrName);
+    });
+
+    ipcMain.handle(WORKER_IPC_CHANNELS.STOP_GROUP, async (_event, groupIdOrName) => {
+      ensureWorkerServicesReady();
+      return workerManager.stopGroup(groupIdOrName);
+    });
+
+    ipcMain.handle('batches:list', async () => {
+      ensureWorkerServicesReady();
+      return batchRepository.list();
+    });
+
+    ipcMain.handle('batches:create', async (_event, input) => {
+      ensureWorkerServicesReady();
+      const batch = await batchRepository.create(input);
+      await workerManager.broadcastBatchesChanged();
+      return batch;
+    });
+
+    ipcMain.handle('batches:update', async (_event, batchId, changes) => {
+      ensureWorkerServicesReady();
+      const batch = await batchRepository.update(batchId, changes);
+      await workerManager.broadcastBatchesChanged();
+      return batch;
+    });
+
+    ipcMain.handle('batches:delete', async (_event, batchId) => {
+      ensureWorkerServicesReady();
+      const batch = await batchRepository.getById(batchId);
+      if (batch?.status === 'Running') {
+        await workerManager.stopBatch(batchId);
+      }
+      const deleted = await batchRepository.delete(batchId);
+      await workerManager.broadcastBatchesChanged();
+      return deleted;
+    });
+
+    ipcMain.handle('batches:start', async (_event, batchId) => {
+      ensureWorkerServicesReady();
+      await workerManager.startBatch(batchId);
+      return true;
+    });
+
+    ipcMain.handle('batches:stop', async (_event, batchId) => {
+      ensureWorkerServicesReady();
+      return workerManager.stopBatch(batchId);
+    });
+
+    ipcMain.handle('batches:reset', async (_event, batchId) => {
+      ensureWorkerServicesReady();
+      const batch = await batchRepository.getById(batchId);
+      if (batch?.status === 'Running') {
+        await workerManager.stopBatch(batchId);
+      }
+      const reset = await batchRepository.reset(batchId);
+      await workerManager.broadcastBatchesChanged();
+      return reset;
+    });
+
+    ipcMain.handle('logs:list', async (_event, limit) => {
+      ensureWorkerServicesReady();
+      return workerLogRepository.listLogs(limit);
+    });
+
+    ipcMain.handle('logs:clear', async () => {
+      ensureWorkerServicesReady();
+      const result = await workerLogRepository.clear();
+      await workerManager.broadcastLogsChanged();
+      return result;
+    });
+
+    ipcMain.handle('settings:activity:get', async () => {
+      ensureWorkerServicesReady();
+      return workerSettingsRepository.getActivityConfig();
+    });
+
+    ipcMain.handle('settings:activity:save', async (_event, config) => {
+      ensureWorkerServicesReady();
+      const result = await workerSettingsRepository.saveActivityConfig(config);
+      await workerManager.setMaxConcurrency(result.maxConcurrentProfiles);
+      return result;
+    });
+
+    ipcMain.handle('settings:general:get', async () => {
+      ensureWorkerServicesReady();
+      return workerSettingsRepository.getGeneralSettings();
+    });
+
+    ipcMain.handle('settings:general:save', async (_event, settings) => {
+      ensureWorkerServicesReady();
+      const result = await workerSettingsRepository.saveGeneralSettings(settings);
+      await workerManager.setMaxConcurrency(result.maxThreads);
+      return result;
+    });
+
+    ipcMain.handle('system:get-stats', async () => {
+      ensureWorkerServicesReady();
+      return systemStatsService.getStats();
+    });
+
   }
 
   function createWindow() {
@@ -452,6 +633,17 @@ if (!gotTheLock) {
       }
     }
 
+    if (proxyServicesReady) {
+      try {
+        await workerManager.init();
+        workerServicesReady = true;
+        systemStatsService.start();
+      } catch (error) {
+        workerServicesInitError = error;
+        console.error('[Electron Main] Worker services init failed:', error);
+      }
+    }
+
     registerIpcHandlers();
     createWindow();
 
@@ -465,6 +657,12 @@ if (!gotTheLock) {
     if (isQuitting) return;
     event.preventDefault();
     isQuitting = true;
+    systemStatsService.stop();
+    try {
+      if (workerServicesReady) await workerManager.stopAll('app-quit');
+    } catch (error) {
+      console.error('[Electron Main] Error stopping workers on quit:', error);
+    }
     try { await profileBrowserManager.closeAllBrowsers(); } catch (error) {
       console.error('[Electron Main] Error closing browsers on quit:', error);
     }

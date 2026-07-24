@@ -148,11 +148,11 @@ export const BatchManagerView: React.FC<BatchManagerViewProps> = ({
             <h2 className="font-bold text-base text-slate-100 flex items-center gap-2">
               <span>Batch Manager (Quản Lý Tiến Trình Hàng Loạt)</span>
               <span className="px-2 py-0.5 text-[10px] font-mono bg-purple-950 text-purple-300 border border-purple-800 rounded-full font-bold">
-                Simulation Engine
+                Worker Core Engine
               </span>
             </h2>
             <p className="text-xs text-slate-400">
-              Cấu hình mô phỏng thực thi song song (Mặc định 40 luồng, điều chỉnh 1-50). Theo dõi trạng thái Ready, Running, Success & Failed thời gian thực.
+              Cấu hình Worker Core thực thi song song (Mặc định 40 luồng, điều chỉnh 1-50). Theo dõi hàng đợi, worker đang chạy và lỗi session/proxy theo thời gian thực.
             </p>
           </div>
         </div>
@@ -283,7 +283,7 @@ export const BatchManagerView: React.FC<BatchManagerViewProps> = ({
                   
                   {/* Progress Header */}
                   <div className="flex items-center justify-between text-xs font-mono">
-                    <span className="text-slate-400 font-medium">Tiến Độ Mô Phỏng</span>
+                    <span className="text-slate-400 font-medium">Tiến Độ Worker</span>
                     <span className="font-bold text-cyan-400">{progressPct}%</span>
                   </div>
 
@@ -385,7 +385,7 @@ export const BatchManagerView: React.FC<BatchManagerViewProps> = ({
                       <button
                         onClick={() => onStopBatch(batch.id)}
                         className="px-3 py-1.5 bg-rose-600 hover:bg-rose-500 text-white font-bold rounded-lg transition flex items-center gap-1.5 shadow"
-                        title="Nút Stop Batch dừng mô phỏng ngay lập tức"
+                        title="Dừng toàn bộ Worker trong Batch"
                       >
                         <Square className="w-3.5 h-3.5 fill-current" />
                         <span>Stop Batch</span>
@@ -394,7 +394,7 @@ export const BatchManagerView: React.FC<BatchManagerViewProps> = ({
                       <button
                         onClick={() => onStartBatch(batch.id)}
                         className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-lg transition flex items-center gap-1.5 shadow"
-                        title="Nút Start Batch mô phỏng tiến trình"
+                        title="Khởi chạy Worker Core cho Batch"
                       >
                         <Play className="w-3.5 h-3.5 fill-current" />
                         <span>Start Batch</span>

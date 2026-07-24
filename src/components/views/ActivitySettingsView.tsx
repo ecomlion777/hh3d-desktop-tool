@@ -1,5 +1,5 @@
 /**
- * ActivitySettingsView - Game Task Script Configuration
+ * ActivitySettingsView - Worker Core and future module configuration
  */
 
 import React, { useState } from 'react';
@@ -36,7 +36,7 @@ export const ActivitySettingsView: React.FC<ActivitySettingsViewProps> = ({
           </div>
           <div>
             <h2 className="font-bold text-sm text-slate-100">Cấu Hình Kịch Bản Hoạt Động (Activity Rules)</h2>
-            <p className="text-xs text-slate-400">Tùy chỉnh luồng tự động cày cấp, phụ bản và xử lý sự cố đứt kết nối</p>
+            <p className="text-xs text-slate-400">Cấu hình Worker Core; các module game được lưu để tích hợp ở phase sau</p>
           </div>
         </div>
 
@@ -53,7 +53,7 @@ export const ActivitySettingsView: React.FC<ActivitySettingsViewProps> = ({
         {/* Left Column - Automation Toggles */}
         <div className="bg-slate-900 border border-slate-800 rounded-lg p-4 space-y-4">
           <h3 className="font-bold text-slate-200 uppercase text-[11px] tracking-wider border-b border-slate-800 pb-2 text-cyan-400">
-            Tự Động Nhiệm Vụ Game
+            Cấu Hình Module Dự Kiến (Chưa Thực Thi ở Phase 06A)
           </h3>
 
           <div className="space-y-3">
@@ -131,7 +131,7 @@ export const ActivitySettingsView: React.FC<ActivitySettingsViewProps> = ({
                 onChange={e => setForm({ ...form, delayBetweenActions: Number(e.target.value) })}
                 className="w-full accent-cyan-500 cursor-pointer"
               />
-              <p className="text-[10px] text-slate-500 mt-1">Tránh bị game phát hiện thao tác bất thường</p>
+              <p className="text-[10px] text-slate-500 mt-1">Khoảng nghỉ cho retry của Worker Core; module game sẽ có cấu hình riêng.</p>
             </div>
 
             <div>
@@ -151,8 +151,8 @@ export const ActivitySettingsView: React.FC<ActivitySettingsViewProps> = ({
 
             <label className="flex items-center justify-between p-2.5 bg-slate-950 rounded border border-slate-800 cursor-pointer">
               <div>
-                <span className="font-semibold text-slate-200 block">Tự đăng nhập lại khi đứt kết nối</span>
-                <span className="text-[11px] text-slate-400">Auto Re-login session nếu bị out game</span>
+                <span className="font-semibold text-slate-200 block">Dự kiến đăng nhập lại khi đứt kết nối</span>
+                <span className="text-[11px] text-slate-400">Chưa được kích hoạt trong Worker Core Phase 06A</span>
               </div>
               <input
                 type="checkbox"

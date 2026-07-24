@@ -9,6 +9,11 @@ const {
   SUPPORTED_SCHEMA_VERSION,
   validateDatabaseShape
 } = require('./validation.cjs');
+const {
+  DEFAULT_WORKER_SETTINGS,
+  DEFAULT_ACTIVITY_CONFIG,
+  DEFAULT_GENERAL_SETTINGS
+} = require('../worker/workerConstants.cjs');
 
 const SCHEMA_VERSION = SUPPORTED_SCHEMA_VERSION;
 
@@ -28,7 +33,7 @@ class JsonDatabase {
     fs.mkdirSync(this.dataDir, { recursive: true });
 
     if (!fs.existsSync(this.dataFile)) {
-      console.log('[JsonDatabase] Initializing new schema v2 database with seed data...');
+      console.log(`[JsonDatabase] Initializing new schema v${SCHEMA_VERSION} database with seed data...`);
       this.data = this.generateSeedData();
       await this.saveDataImmediate(this.data, { skipBackup: true });
       return;
@@ -37,45 +42,83 @@ class JsonDatabase {
     await this.loadData();
   }
 
-  migrateToCurrent(data) {
-    validateDatabaseShape(data, { allowLegacy: true });
+  migrateV1ToV2(data) {
+    const now = new Date().toISOString();
+    const profiles = data.profiles.map(profile => {
+      const next = { ...profile };
+      if (next.proxyId) {
+        next.legacyProxyId = next.proxyId;
+        next.proxyId = null;
+        next.proxyAddress = 'Không dùng Proxy';
+        next.expectedIp = '';
+        next.currentIp = '';
+      }
+      return next;
+    });
 
-    if (data.schemaVersion === SCHEMA_VERSION) {
-      return { data, migrated: false };
+    return {
+      ...data,
+      schemaVersion: 2,
+      updatedAt: now,
+      profiles,
+      groups: Array.isArray(data.groups) ? data.groups : [],
+      proxies: []
+    };
+  }
+
+  migrateV2ToV3(data) {
+    return {
+      ...data,
+      schemaVersion: 3,
+      updatedAt: new Date().toISOString(),
+      profiles: Array.isArray(data.profiles) ? data.profiles : [],
+      groups: Array.isArray(data.groups) ? data.groups : [],
+      proxies: Array.isArray(data.proxies) ? data.proxies : [],
+      batches: Array.isArray(data.batches) ? data.batches : [],
+      logs: Array.isArray(data.logs) ? data.logs : [],
+      workerSettings: {
+        ...DEFAULT_WORKER_SETTINGS,
+        ...(data.workerSettings || {})
+      },
+      activityConfig: {
+        ...DEFAULT_ACTIVITY_CONFIG,
+        ...(data.activityConfig || {})
+      },
+      generalSettings: {
+        ...DEFAULT_GENERAL_SETTINGS,
+        ...(data.generalSettings || {})
+      }
+    };
+  }
+
+  migrateToCurrent(input) {
+    validateDatabaseShape(input, { allowLegacy: true });
+
+    if (input.schemaVersion > SCHEMA_VERSION) {
+      throw new Error(
+        `Schema ${input.schemaVersion} mới hơn phiên bản ứng dụng hỗ trợ (${SCHEMA_VERSION}).`
+      );
     }
 
-    if (data.schemaVersion === 1) {
-      const now = new Date().toISOString();
-      const profiles = data.profiles.map(profile => {
-        const next = { ...profile };
+    let data = JSON.parse(JSON.stringify(input));
+    let migrated = false;
 
-        // Phase 03 seed contained display-only proxy IDs without real proxy records.
-        // Preserve the old identifier for reference, but start Phase 05 in direct mode.
-        if (next.proxyId) {
-          next.legacyProxyId = next.proxyId;
-          next.proxyId = null;
-          next.proxyAddress = 'Không dùng Proxy';
-          next.expectedIp = '';
-          next.currentIp = '';
-        }
-
-        return next;
-      });
-
-      return {
-        migrated: true,
-        data: {
-          ...data,
-          schemaVersion: 2,
-          updatedAt: now,
-          profiles,
-          groups: Array.isArray(data.groups) ? data.groups : [],
-          proxies: []
-        }
-      };
+    while (data.schemaVersion < SCHEMA_VERSION) {
+      if (data.schemaVersion === 1) {
+        data = this.migrateV1ToV2(data);
+        migrated = true;
+        continue;
+      }
+      if (data.schemaVersion === 2) {
+        data = this.migrateV2ToV3(data);
+        migrated = true;
+        continue;
+      }
+      throw new Error(`Không có migration cho schemaVersion ${data.schemaVersion}.`);
     }
 
-    throw new Error(`Không có migration cho schemaVersion ${data.schemaVersion}.`);
+    validateDatabaseShape(data, { allowLegacy: false });
+    return { data, migrated };
   }
 
   async loadData() {
@@ -85,16 +128,16 @@ class JsonDatabase {
       const migration = this.migrateToCurrent(parsed);
 
       if (migration.migrated) {
-        console.log('[JsonDatabase] Migrating app-data.json from schema v1 to v2...');
+        console.log(`[JsonDatabase] Migrating app-data.json to schema v${SCHEMA_VERSION}...`);
         await this.saveDataImmediate(migration.data);
       } else {
-        validateDatabaseShape(migration.data, { allowLegacy: false });
         this.data = migration.data;
       }
 
       console.log(
         `[JsonDatabase] Successfully loaded ${this.data.profiles.length} profiles, ` +
-        `${this.data.groups.length} groups and ${this.data.proxies.length} proxies.`
+        `${this.data.groups.length} groups, ${this.data.proxies.length} proxies and ` +
+        `${this.data.batches.length} batches.`
       );
     } catch (err) {
       console.error('[JsonDatabase] Primary database load failed:', err.message);
@@ -162,7 +205,21 @@ class JsonDatabase {
       updatedAt: new Date().toISOString(),
       profiles: Array.isArray(newData.profiles) ? newData.profiles : [],
       groups: Array.isArray(newData.groups) ? newData.groups : [],
-      proxies: Array.isArray(newData.proxies) ? newData.proxies : []
+      proxies: Array.isArray(newData.proxies) ? newData.proxies : [],
+      batches: Array.isArray(newData.batches) ? newData.batches : [],
+      logs: Array.isArray(newData.logs) ? newData.logs : [],
+      workerSettings: {
+        ...DEFAULT_WORKER_SETTINGS,
+        ...(newData.workerSettings || {})
+      },
+      activityConfig: {
+        ...DEFAULT_ACTIVITY_CONFIG,
+        ...(newData.activityConfig || {})
+      },
+      generalSettings: {
+        ...DEFAULT_GENERAL_SETTINGS,
+        ...(newData.generalSettings || {})
+      }
     };
 
     validateDatabaseShape(payload, { allowLegacy: false });
@@ -198,7 +255,9 @@ class JsonDatabase {
       schemaVersion: this.data ? this.data.schemaVersion : SCHEMA_VERSION,
       profileCount: this.data?.profiles?.length || 0,
       groupCount: this.data?.groups?.length || 0,
-      proxyCount: this.data?.proxies?.length || 0
+      proxyCount: this.data?.proxies?.length || 0,
+      batchCount: this.data?.batches?.length || 0,
+      logCount: this.data?.logs?.length || 0
     };
   }
 
@@ -260,7 +319,12 @@ class JsonDatabase {
       updatedAt: nowISO,
       profiles,
       groups,
-      proxies: []
+      proxies: [],
+      batches: [],
+      logs: [],
+      workerSettings: { ...DEFAULT_WORKER_SETTINGS },
+      activityConfig: { ...DEFAULT_ACTIVITY_CONFIG },
+      generalSettings: { ...DEFAULT_GENERAL_SETTINGS }
     };
   }
 }

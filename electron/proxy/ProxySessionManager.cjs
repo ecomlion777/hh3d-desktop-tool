@@ -164,6 +164,55 @@ class ProxySessionManager {
     }
   }
 
+  /**
+   * Returns proxy authentication context for another Electron-main service.
+   * This method must never be exposed through IPC or preload because it contains
+   * decrypted credentials when an authenticated proxy is assigned.
+   */
+  async getProxyAuthenticationContext(profileId) {
+    const profile = await this.profileRepo.getProfileById(profileId);
+    if (!profile) {
+      throw proxyError('PROXY_INVALID_CONFIGURATION', `Profile ID "${profileId}" không tồn tại.`);
+    }
+
+    if (!profile.proxyId) return null;
+
+    const proxy = this.proxyRepository.getRawProxyById(profile.proxyId);
+    if (!proxy) {
+      throw proxyError('PROXY_NOT_FOUND', 'Proxy được gán cho profile không còn tồn tại.');
+    }
+    if (!proxy.enabled) {
+      throw proxyError('PROXY_DISABLED', `Proxy "${proxy.name}" đang bị tắt.`);
+    }
+
+    if (!proxy.authRequired) {
+      return {
+        proxyId: proxy.id,
+        host: proxy.host,
+        port: proxy.port,
+        authRequired: false
+      };
+    }
+
+    if (!proxy.hasCredentials) {
+      throw proxyError('PROXY_AUTH_REQUIRED', `Proxy "${proxy.name}" chưa có credential đã lưu.`);
+    }
+
+    const credentials = this.proxySecretStore.getCredentials(proxy.id);
+    if (!credentials?.username || !credentials?.password) {
+      throw proxyError('PROXY_AUTH_REQUIRED', `Proxy "${proxy.name}" chưa có credential hợp lệ.`);
+    }
+
+    return {
+      proxyId: proxy.id,
+      host: proxy.host,
+      port: proxy.port,
+      authRequired: true,
+      username: credentials.username,
+      password: credentials.password
+    };
+  }
+
   async refreshProfileProxy(profileId) {
     if (this.profileBrowserManager) {
       await this.profileBrowserManager.closeProfileBrowser(profileId);

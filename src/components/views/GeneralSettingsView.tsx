@@ -4,7 +4,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { Settings, Save, CheckCircle2, Download, HardDrive, Info, FolderCheck, Database, FileCode, ShieldCheck, KeyRound } from 'lucide-react';
-import { GeneralAppSettings, DesktopVersions, DesktopStorageInfo, ProxyStorageInfo } from '../../types';
+import { GeneralAppSettings, DesktopVersions, DesktopStorageInfo, ProxyStorageInfo, WorkerSummary } from '../../types';
 import { appBridge } from '../../services/appBridgeService';
 
 interface GeneralSettingsViewProps {
@@ -33,6 +33,8 @@ export const GeneralSettingsView: React.FC<GeneralSettingsViewProps> = ({
   const [openWindowsCount, setOpenWindowsCount] = useState<number>(0);
   const [proxyStorageInfo, setProxyStorageInfo] = useState<ProxyStorageInfo | null>(null);
   const [proxyStorageError, setProxyStorageError] = useState<string | null>(null);
+  const [workerSummary, setWorkerSummary] = useState<WorkerSummary | null>(null);
+  const [workerSummaryError, setWorkerSummaryError] = useState<string | null>(null);
 
   useEffect(() => {
     const statusMap = new Map<string, any>();
@@ -84,6 +86,28 @@ export const GeneralSettingsView: React.FC<GeneralSettingsViewProps> = ({
     refreshProxyStorage();
     const unsubscribe = appBridge.onProxiesChanged
       ? appBridge.onProxiesChanged(() => { void refreshProxyStorage(); })
+      : undefined;
+
+    return () => { if (unsubscribe) unsubscribe(); };
+  }, []);
+
+  useEffect(() => {
+    const refreshWorkerSummary = async () => {
+      if (!appBridge.getWorkerSummary) return;
+      try {
+        setWorkerSummary(await appBridge.getWorkerSummary());
+        setWorkerSummaryError(null);
+      } catch (error) {
+        setWorkerSummaryError(error instanceof Error ? error.message : String(error));
+      }
+    };
+
+    void refreshWorkerSummary();
+    const unsubscribe = appBridge.onWorkerSummaryChanged
+      ? appBridge.onWorkerSummaryChanged(summary => {
+          setWorkerSummary(summary);
+          setWorkerSummaryError(null);
+        })
       : undefined;
 
     return () => { if (unsubscribe) unsubscribe(); };
@@ -351,6 +375,58 @@ export const GeneralSettingsView: React.FC<GeneralSettingsViewProps> = ({
               </p>
             </div>
           )}
+        </div>
+
+        {/* API Worker Core Card (Phase 06A) */}
+        <div className="md:col-span-2 bg-slate-900 border border-slate-800 rounded-lg p-4 space-y-3">
+          <h3 className="font-bold text-slate-200 uppercase text-[11px] tracking-wider border-b border-slate-800 pb-2 text-emerald-400 flex items-center justify-between">
+            <span className="flex items-center gap-1.5">
+              <Database className="w-4 h-4 text-emerald-400" />
+              <span>API Worker Core Runtime (Phase 06A)</span>
+            </span>
+            <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-emerald-950 text-emerald-300 border border-emerald-800">
+              Persistent Session + Assigned Proxy
+            </span>
+          </h3>
+
+          {workerSummaryError ? (
+            <div className="rounded border border-rose-800 bg-rose-950/40 p-3 text-[11px] text-rose-300">
+              {workerSummaryError}
+            </div>
+          ) : workerSummary ? (
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+              <div className="bg-slate-950 p-3 rounded border border-slate-800">
+                <span className="text-[10px] text-slate-500 uppercase block">Concurrency</span>
+                <strong className="font-mono text-cyan-400">{workerSummary.maxConcurrency}</strong>
+              </div>
+              <div className="bg-slate-950 p-3 rounded border border-slate-800">
+                <span className="text-[10px] text-slate-500 uppercase block">Active</span>
+                <strong className="font-mono text-emerald-400">{workerSummary.activeCount}</strong>
+              </div>
+              <div className="bg-slate-950 p-3 rounded border border-slate-800">
+                <span className="text-[10px] text-slate-500 uppercase block">Queued</span>
+                <strong className="font-mono text-amber-400">{workerSummary.queuedCount}</strong>
+              </div>
+              <div className="bg-slate-950 p-3 rounded border border-slate-800">
+                <span className="text-[10px] text-slate-500 uppercase block">Running</span>
+                <strong className="font-mono text-emerald-300">{workerSummary.runningCount}</strong>
+              </div>
+              <div className="bg-slate-950 p-3 rounded border border-slate-800">
+                <span className="text-[10px] text-slate-500 uppercase block">Errors</span>
+                <strong className="font-mono text-rose-400">{workerSummary.errorCount}</strong>
+              </div>
+              <div className="bg-slate-950 p-3 rounded border border-slate-800">
+                <span className="text-[10px] text-slate-500 uppercase block">Tracked</span>
+                <strong className="font-mono text-purple-400">{workerSummary.totalTracked}</strong>
+              </div>
+            </div>
+          ) : (
+            <div className="text-[11px] text-slate-500">Worker Core chỉ khả dụng trong Electron Desktop.</div>
+          )}
+
+          <p className="text-[11px] text-slate-400 font-mono bg-slate-950/60 p-2 rounded border border-slate-800/80">
+            Phase 06A chỉ kiểm tra session/network bằng Chromium Session. Chưa chạy module game và không tự gửi request lặp lại khi khởi động.
+          </p>
         </div>
 
         {/* Mini Browser Session Card (Phase 04A) */}

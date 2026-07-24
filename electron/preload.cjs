@@ -46,5 +46,36 @@ contextBridge.exposeInMainWorld('desktopBridge', {
   getProxyStorageInfo: () => ipcRenderer.invoke('proxies:get-storage-info'),
   onProxiesChanged: callback => subscribe('proxies:changed', callback),
   onProxyTestStatusChanged: callback => subscribe('proxy-test:status-changed', callback),
-  onProfileProxyStateChanged: callback => subscribe('profile-proxy:state-changed', callback)
+  onProfileProxyStateChanged: callback => subscribe('profile-proxy:state-changed', callback),
+
+  startWorkers: (profileIds, options) => ipcRenderer.invoke('workers:start-profiles', profileIds, options),
+  stopWorkers: profileIds => ipcRenderer.invoke('workers:stop-profiles', profileIds),
+  getWorkerStatus: profileId => ipcRenderer.invoke('workers:get-status', profileId),
+  listWorkerStatuses: () => ipcRenderer.invoke('workers:list-statuses'),
+  getWorkerSummary: () => ipcRenderer.invoke('workers:get-summary'),
+  runWorkerGroup: groupIdOrName => ipcRenderer.invoke('workers:run-group', groupIdOrName),
+  stopWorkerGroup: groupIdOrName => ipcRenderer.invoke('workers:stop-group', groupIdOrName),
+  onWorkerStatusChanged: callback => subscribe('workers:status-changed', callback),
+  onWorkerSummaryChanged: callback => subscribe('workers:summary-changed', callback),
+  onProfilesChanged: callback => subscribe('profiles:changed', callback),
+
+  listBatches: () => ipcRenderer.invoke('batches:list'),
+  createBatch: input => ipcRenderer.invoke('batches:create', input),
+  updateBatch: (batchId, changes) => ipcRenderer.invoke('batches:update', batchId, changes),
+  deleteBatch: batchId => ipcRenderer.invoke('batches:delete', batchId),
+  startBatch: batchId => ipcRenderer.invoke('batches:start', batchId),
+  stopBatch: batchId => ipcRenderer.invoke('batches:stop', batchId),
+  resetBatch: batchId => ipcRenderer.invoke('batches:reset', batchId),
+  onBatchesChanged: callback => subscribe('batches:changed', callback),
+
+  listLogs: limit => ipcRenderer.invoke('logs:list', limit),
+  clearWorkerLogs: () => ipcRenderer.invoke('logs:clear'),
+  onLogsChanged: callback => subscribe('logs:changed', callback),
+
+  getActivityConfig: () => ipcRenderer.invoke('settings:activity:get'),
+  saveActivityConfig: config => ipcRenderer.invoke('settings:activity:save', config),
+  getGeneralSettings: () => ipcRenderer.invoke('settings:general:get'),
+  saveGeneralSettings: settings => ipcRenderer.invoke('settings:general:save', settings),
+  getSystemStats: () => ipcRenderer.invoke('system:get-stats'),
+  onStatsChanged: callback => subscribe('stats:changed', callback)
 });

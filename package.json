@@ -15,7 +15,8 @@
     "clean": "rm -rf dist",
     "lint": "tsc --noEmit",
     "test:phase05": "node tests/phase05-backend.test.cjs",
-    "test:phase05b": "node tests/phase05-backend.test.cjs"
+    "test:phase05b": "node tests/phase05-backend.test.cjs",
+    "test:phase06": "node tests/phase06-worker-core.test.cjs"
   },
   "dependencies": {
     "@tailwindcss/vite": "^4.1.14",

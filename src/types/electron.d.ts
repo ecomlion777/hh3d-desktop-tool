@@ -6,7 +6,17 @@ import type {
   ProxyTestResult,
   ProxyUpdateInput,
   ProfileProxyState,
-  ProxyOneToOneAssignmentResult
+  ProxyOneToOneAssignmentResult,
+  ProfileWorkerStatus,
+  WorkerSummary,
+  WorkerStartResult,
+  WorkerStopResult,
+  WorkerStartOptions,
+  BatchTask,
+  LogEntry,
+  ActivityConfig,
+  GeneralAppSettings,
+  SystemStats
 } from '../shared';
 
 export interface DesktopVersions {
@@ -25,6 +35,8 @@ export interface DesktopStorageInfo {
   profileCount: number;
   groupCount: number;
   proxyCount?: number;
+  batchCount?: number;
+  logCount?: number;
 }
 
 export interface MiniBrowserStatus {
@@ -90,6 +102,37 @@ export interface DesktopBridgeAPI {
   onProxiesChanged: (callback: (proxies: ProxyItem[]) => void) => () => void;
   onProxyTestStatusChanged: (callback: (result: ProxyTestResult) => void) => () => void;
   onProfileProxyStateChanged: (callback: (state: ProfileProxyState) => void) => () => void;
+
+  startWorkers: (profileIds: string[], options?: WorkerStartOptions) => Promise<WorkerStartResult>;
+  stopWorkers: (profileIds: string[]) => Promise<WorkerStopResult>;
+  getWorkerStatus: (profileId: string) => Promise<ProfileWorkerStatus>;
+  listWorkerStatuses: () => Promise<ProfileWorkerStatus[]>;
+  getWorkerSummary: () => Promise<WorkerSummary>;
+  runWorkerGroup: (groupIdOrName: string) => Promise<WorkerStartResult>;
+  stopWorkerGroup: (groupIdOrName: string) => Promise<WorkerStopResult>;
+  onWorkerStatusChanged: (callback: (status: ProfileWorkerStatus) => void) => () => void;
+  onWorkerSummaryChanged: (callback: (summary: WorkerSummary) => void) => () => void;
+  onProfilesChanged: (callback: (profiles: any[]) => void) => () => void;
+
+  listBatches: () => Promise<BatchTask[]>;
+  createBatch: (input: any) => Promise<BatchTask>;
+  updateBatch: (batchId: string, changes: Partial<BatchTask>) => Promise<BatchTask | null>;
+  deleteBatch: (batchId: string) => Promise<boolean>;
+  startBatch: (batchId: string) => Promise<boolean>;
+  stopBatch: (batchId: string) => Promise<boolean>;
+  resetBatch: (batchId: string) => Promise<boolean>;
+  onBatchesChanged: (callback: (batches: BatchTask[]) => void) => () => void;
+
+  listLogs: (limit?: number) => Promise<LogEntry[]>;
+  clearWorkerLogs: () => Promise<boolean>;
+  onLogsChanged: (callback: (logs: LogEntry[]) => void) => () => void;
+
+  getActivityConfig: () => Promise<ActivityConfig>;
+  saveActivityConfig: (config: ActivityConfig) => Promise<ActivityConfig>;
+  getGeneralSettings: () => Promise<GeneralAppSettings>;
+  saveGeneralSettings: (settings: GeneralAppSettings) => Promise<GeneralAppSettings>;
+  getSystemStats: () => Promise<SystemStats>;
+  onStatsChanged: (callback: (stats: SystemStats) => void) => () => void;
 }
 
 declare global {

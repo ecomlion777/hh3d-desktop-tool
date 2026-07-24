@@ -226,7 +226,7 @@ export default function App() {
     }
 
     const fullIdentitySet = new Set<string>();
-    const existingUnauthByEndpoint = new Map(
+    const existingUnauthByEndpoint = new Map<string, ProxyItem>(
       proxies
         .filter(proxy => !proxy.authRequired && proxy.enabled)
         .map(proxy => [
@@ -492,7 +492,7 @@ export default function App() {
         stoppedCount={profiles.filter(p => p.status === 'stopped').length}
         proxyErrorCount={new Set([
           ...profiles.filter(p => p.status === 'proxy_error').map(p => p.id),
-          ...Object.values(profileProxyStates).filter(state => state.state === 'error').map(state => state.profileId)
+          ...(Object.values(profileProxyStates) as import('./types').ProfileProxyState[]).filter(state => state.state === 'error').map(state => state.profileId)
         ]).size}
         loginRequiredCount={profiles.filter(p => p.status === 'login_required').length}
         systemStats={systemStats}

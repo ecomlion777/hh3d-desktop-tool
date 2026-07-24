@@ -231,7 +231,7 @@ const ProfileTableRow = React.memo<ProfileTableRowProps>(({
 
       {/* Status */}
       <td className="p-3">
-        <StatusBadge status={p.status} />
+        <StatusBadge status={effectiveProfileStatus} />
       </td>
 
       {/* Current Activity */}
@@ -246,7 +246,7 @@ const ProfileTableRow = React.memo<ProfileTableRowProps>(({
       <td className="p-3 text-center">
         <div className="flex items-center justify-center space-x-1">
           {/* Start / Stop Toggle */}
-          {p.status === 'running' ? (
+          {p.status === 'running' || p.status === 'waiting' ? (
             <button
               onClick={() => onToggleProfileRun(p.id)}
               className="p-1.5 bg-rose-950 hover:bg-rose-800 text-rose-300 border border-rose-800 rounded transition"

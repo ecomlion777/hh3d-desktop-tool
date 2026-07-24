@@ -24,7 +24,12 @@ import {
   ProxyTestResult,
   ProfileProxyState,
   ProxyStorageInfo,
-  ProxyOneToOneAssignmentResult
+  ProxyOneToOneAssignmentResult,
+  ProfileWorkerStatus,
+  WorkerSummary,
+  WorkerStartResult,
+  WorkerStopResult,
+  WorkerStartOptions
 } from '../types';
 
 import { DesktopStorageInfo, DesktopVersions } from '../types/electron';
@@ -1262,24 +1267,42 @@ export class ElectronPreloadBridge implements AppBridge {
     throw new Error('API desktopBridge.deleteProfile() không khả dụng trong môi trường Electron.');
   }
 
-  async startProfile(ids: string[]): Promise<boolean> {
-    if (this.bridge?.updateProfile) {
-      for (const id of ids) {
-        await this.bridge.updateProfile(id, { status: 'running', currentActivity: 'Luyện Cấp (Leveling Map 85)' });
-      }
-      return true;
+  private requireWorkerBridge() {
+    const bridge = this.bridge;
+    if (!bridge?.startWorkers || !bridge?.stopWorkers) {
+      throw new Error('Electron Worker Core IPC không khả dụng.');
     }
-    throw new Error('API desktopBridge.updateProfile() không khả dụng trong môi trường Electron.');
+    return bridge;
+  }
+
+  async startProfile(ids: string[]): Promise<boolean> {
+    await this.requireWorkerBridge().startWorkers(ids);
+    return true;
   }
 
   async stopProfile(ids: string[]): Promise<boolean> {
-    if (this.bridge?.updateProfile) {
-      for (const id of ids) {
-        await this.bridge.updateProfile(id, { status: 'stopped', currentActivity: 'Đã Dừng' });
-      }
-      return true;
-    }
-    throw new Error('API desktopBridge.updateProfile() không khả dụng trong môi trường Electron.');
+    await this.requireWorkerBridge().stopWorkers(ids);
+    return true;
+  }
+
+  async startWorkers(profileIds: string[], options?: WorkerStartOptions): Promise<WorkerStartResult> {
+    return this.requireWorkerBridge().startWorkers(profileIds, options);
+  }
+
+  async stopWorkers(profileIds: string[]): Promise<WorkerStopResult> {
+    return this.requireWorkerBridge().stopWorkers(profileIds);
+  }
+
+  async getWorkerStatus(profileId: string): Promise<ProfileWorkerStatus> {
+    return this.requireWorkerBridge().getWorkerStatus(profileId);
+  }
+
+  async listWorkerStatuses(): Promise<ProfileWorkerStatus[]> {
+    return this.requireWorkerBridge().listWorkerStatuses();
+  }
+
+  async getWorkerSummary(): Promise<WorkerSummary> {
+    return this.requireWorkerBridge().getWorkerSummary();
   }
 
   private requireMiniBrowserBridge() {
@@ -1387,27 +1410,13 @@ export class ElectronPreloadBridge implements AppBridge {
   }
 
   async runGroup(groupName: string): Promise<boolean> {
-    if (this.bridge?.listProfiles && this.bridge?.updateProfile) {
-      const all = await this.bridge.listProfiles();
-      const groupProfiles = all.filter(p => p.group === groupName || p.groupId === groupName);
-      for (const p of groupProfiles) {
-        await this.bridge.updateProfile(p.id, { status: 'running', currentActivity: 'Luyện Cấp (Leveling Map 85)' });
-      }
-      return true;
-    }
-    throw new Error('API desktopBridge không khả dụng trong môi trường Electron.');
+    await this.requireWorkerBridge().runWorkerGroup(groupName);
+    return true;
   }
 
   async stopGroup(groupName: string): Promise<boolean> {
-    if (this.bridge?.listProfiles && this.bridge?.updateProfile) {
-      const all = await this.bridge.listProfiles();
-      const groupProfiles = all.filter(p => p.group === groupName || p.groupId === groupName);
-      for (const p of groupProfiles) {
-        await this.bridge.updateProfile(p.id, { status: 'stopped', currentActivity: 'Đã Dừng' });
-      }
-      return true;
-    }
-    throw new Error('API desktopBridge không khả dụng trong môi trường Electron.');
+    await this.requireWorkerBridge().stopWorkerGroup(groupName);
+    return true;
   }
 
   // Storage & System Info
@@ -1516,61 +1525,62 @@ export class ElectronPreloadBridge implements AppBridge {
   }
 
   async getBatches(): Promise<BatchTask[]> {
-    return this.mockFallback.getBatches ? this.mockFallback.getBatches() : [];
+    return this.requireWorkerBridge().listBatches();
   }
   async createBatch(data: any): Promise<BatchTask> {
-    return this.mockFallback.createBatch ? this.mockFallback.createBatch(data) : (data as BatchTask);
+    return this.requireWorkerBridge().createBatch(data);
   }
-  async updateBatch(batchId: string, data: any): Promise<BatchTask | null> {
-    return this.mockFallback.updateBatch ? this.mockFallback.updateBatch(batchId, data) : null;
+  async updateBatch(batchId: string, data: Partial<BatchTask>): Promise<BatchTask | null> {
+    return this.requireWorkerBridge().updateBatch(batchId, data);
   }
   async deleteBatch(batchId: string): Promise<boolean> {
-    return this.mockFallback.deleteBatch ? this.mockFallback.deleteBatch(batchId) : true;
+    return this.requireWorkerBridge().deleteBatch(batchId);
   }
   async startBatch(batchId: string): Promise<boolean> {
-    return this.mockFallback.startBatch(batchId);
+    return this.requireWorkerBridge().startBatch(batchId);
   }
   async stopBatch(batchId: string): Promise<boolean> {
-    return this.mockFallback.stopBatch(batchId);
+    return this.requireWorkerBridge().stopBatch(batchId);
   }
   async resetBatch(batchId: string): Promise<boolean> {
-    return this.mockFallback.resetBatch ? this.mockFallback.resetBatch(batchId) : true;
+    return this.requireWorkerBridge().resetBatch(batchId);
   }
 
   async getLogs(): Promise<LogEntry[]> {
-    return this.mockFallback.getLogs();
+    return this.requireWorkerBridge().listLogs(1000);
   }
   async clearLogs(): Promise<boolean> {
-    return this.mockFallback.clearLogs ? this.mockFallback.clearLogs() : true;
+    return this.requireWorkerBridge().clearWorkerLogs();
   }
   async getActivityConfig(): Promise<ActivityConfig> {
-    return this.mockFallback.getActivityConfig ? this.mockFallback.getActivityConfig() : DEFAULT_ACTIVITY_CONFIG;
+    return this.requireWorkerBridge().getActivityConfig();
   }
   async saveActivityConfig(config: ActivityConfig): Promise<boolean> {
-    return this.mockFallback.saveActivityConfig ? this.mockFallback.saveActivityConfig(config) : true;
+    await this.requireWorkerBridge().saveActivityConfig(config);
+    return true;
   }
   async getGeneralSettings(): Promise<GeneralAppSettings> {
-    return this.mockFallback.getGeneralSettings ? this.mockFallback.getGeneralSettings() : DEFAULT_GENERAL_SETTINGS;
+    return this.requireWorkerBridge().getGeneralSettings();
   }
   async saveGeneralSettings(settings: GeneralAppSettings): Promise<boolean> {
-    return this.mockFallback.saveGeneralSettings ? this.mockFallback.saveGeneralSettings(settings) : true;
+    await this.requireWorkerBridge().saveGeneralSettings(settings);
+    return true;
   }
   async getSystemStats(): Promise<SystemStats> {
-    return this.mockFallback.getSystemStats ? this.mockFallback.getSystemStats() : { cpuUsage: 0, ramUsageGb: 0, ramTotalGb: 16, activeConnections: 0, networkSpeedMbps: 0 };
+    return this.requireWorkerBridge().getSystemStats();
   }
 
   onProfilesUpdated(callback: (profiles: Profile[]) => void): () => void {
-    // Return empty unsubscribe function in Electron. Data is refreshed after CRUD operations.
-    return () => {};
+    return this.requireWorkerBridge().onProfilesChanged(callback);
   }
   onBatchesUpdated(callback: (batches: BatchTask[]) => void): () => void {
-    return this.mockFallback.onBatchesUpdated ? this.mockFallback.onBatchesUpdated(callback) : () => {};
+    return this.requireWorkerBridge().onBatchesChanged(callback);
   }
   onLogsUpdated(callback: (logs: LogEntry[]) => void): () => void {
-    return this.mockFallback.onLogsUpdated(callback);
+    return this.requireWorkerBridge().onLogsChanged(callback);
   }
   onStatsUpdated(callback: (stats: SystemStats) => void): () => void {
-    return this.mockFallback.onStatsUpdated ? this.mockFallback.onStatsUpdated(callback) : () => {};
+    return this.requireWorkerBridge().onStatsChanged(callback);
   }
   onMiniBrowserStatusChanged(callback: (status: MiniBrowserStatus) => void): () => void {
     return this.requireMiniBrowserBridge().onMiniBrowserStatusChanged(callback);
@@ -1583,6 +1593,12 @@ export class ElectronPreloadBridge implements AppBridge {
   }
   onProfileProxyStateChanged(callback: (state: ProfileProxyState) => void): () => void {
     return this.requireProxyBridge().onProfileProxyStateChanged(callback);
+  }
+  onWorkerStatusChanged(callback: (status: ProfileWorkerStatus) => void): () => void {
+    return this.requireWorkerBridge().onWorkerStatusChanged(callback);
+  }
+  onWorkerSummaryChanged(callback: (summary: WorkerSummary) => void): () => void {
+    return this.requireWorkerBridge().onWorkerSummaryChanged(callback);
   }
 }
 

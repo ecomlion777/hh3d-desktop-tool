@@ -2,7 +2,7 @@
  * HH3D Desktop Tool - Validation Helpers for Local JSON Storage
  */
 
-const SUPPORTED_SCHEMA_VERSION = 2;
+const SUPPORTED_SCHEMA_VERSION = 3;
 
 function validateProfile(profile, existingProfiles, isUpdate = false) {
   if (!profile || typeof profile !== 'object' || Array.isArray(profile)) {
@@ -104,13 +104,28 @@ function validateDatabaseShape(data, options = {}) {
   if (!Array.isArray(data.profiles)) {
     throw new Error('Cấu trúc profiles không hợp lệ (phải là Array).');
   }
-
   if (!Array.isArray(data.groups)) {
     throw new Error('Cấu trúc groups không hợp lệ (phải là Array).');
   }
-
   if (data.schemaVersion >= 2 && !Array.isArray(data.proxies)) {
     throw new Error('Cấu trúc proxies không hợp lệ (phải là Array).');
+  }
+  if (data.schemaVersion >= 3) {
+    if (!Array.isArray(data.batches)) {
+      throw new Error('Cấu trúc batches không hợp lệ (phải là Array).');
+    }
+    if (!Array.isArray(data.logs)) {
+      throw new Error('Cấu trúc logs không hợp lệ (phải là Array).');
+    }
+    if (!data.workerSettings || typeof data.workerSettings !== 'object' || Array.isArray(data.workerSettings)) {
+      throw new Error('Cấu trúc workerSettings không hợp lệ.');
+    }
+    if (!data.activityConfig || typeof data.activityConfig !== 'object' || Array.isArray(data.activityConfig)) {
+      throw new Error('Cấu trúc activityConfig không hợp lệ.');
+    }
+    if (!data.generalSettings || typeof data.generalSettings !== 'object' || Array.isArray(data.generalSettings)) {
+      throw new Error('Cấu trúc generalSettings không hợp lệ.');
+    }
   }
 
   return true;
