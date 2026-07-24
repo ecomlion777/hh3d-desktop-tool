@@ -47,9 +47,20 @@ const BUILTIN_CATALOG = Object.freeze([
     }
   },
   {
-    code: 'te_le', label: 'Tế Lễ', description: 'Khung module Tế Lễ từ userscript HH3D.',
-    category: 'daily', version: '0.1.0', implementationState: 'planned', required: false,
-    defaultEnabled: false, triggers: ['manual', 'worker_start'], order: 110, sourceVersion: '5.4.8', defaultConfig: {}
+    code: 'te_le',
+    label: 'Tế Lễ',
+    description: 'Thực hiện Tế Lễ Tông Môn bằng REST API với nonce, security_token, session và proxy của profile.',
+    category: 'daily',
+    version: '1.0.0',
+    implementationState: 'ready',
+    required: false,
+    defaultEnabled: false,
+    triggers: ['manual', 'worker_start'],
+    order: 110,
+    sourceVersion: '5.4.8',
+    defaultConfig: {
+      retrySecurityContextOnce: true
+    }
   },
   {
     code: 'van_dap', label: 'Vấn Đáp', description: 'Khung module Vấn Đáp từ userscript HH3D.',
