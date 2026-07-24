@@ -8,6 +8,7 @@ const {
   DEFAULT_GENERAL_SETTINGS
 } = require('./workerConstants.cjs');
 const { normalizeWorkerSettings } = require('./workerValidation.cjs');
+const { normalizeWebsiteSettings } = require('../website/websiteValidation.cjs');
 
 class WorkerSettingsRepository {
   constructor(db) {
@@ -73,14 +74,19 @@ class WorkerSettingsRepository {
 
   async saveGeneralSettings(settings = {}) {
     const current = this.getGeneralSettings();
+    const websiteSettings = normalizeWebsiteSettings(settings, current);
     const normalized = {
       ...current,
       ...settings,
+      ...websiteSettings,
       maxThreads: Math.min(Math.max(Number(settings.maxThreads ?? current.maxThreads) || 40, 1), 50),
       proxyTimeout: Math.min(Math.max(Number(settings.proxyTimeout ?? current.proxyTimeout) || 15, 3), 60),
       theme: ['dark', 'midnight', 'cyberpunk'].includes(settings.theme) ? settings.theme : current.theme,
       ipcMode: settings.ipcMode === 'mock' ? 'mock' : 'electron_bridge',
-      language: settings.language === 'en' ? 'en' : 'vi'
+      language: settings.language === 'en' ? 'en' : 'vi',
+      minimizeToTray: Boolean(settings.minimizeToTray ?? current.minimizeToTray),
+      autoStartWithSystem: Boolean(settings.autoStartWithSystem ?? current.autoStartWithSystem),
+      checkUpdateAuto: Boolean(settings.checkUpdateAuto ?? current.checkUpdateAuto)
     };
 
     return this.db.transaction(async data => ({

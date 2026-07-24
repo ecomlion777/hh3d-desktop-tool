@@ -347,6 +347,8 @@ export const DEFAULT_ACTIVITY_CONFIG: ActivityConfig = {
 };
 
 export const DEFAULT_GENERAL_SETTINGS: GeneralAppSettings = {
+  websiteBaseUrl: 'https://hoathinh3d.co/',
+  websiteAllowedHosts: ['hoathinh3d.co', 'hoathinh3d.com', 'hoathinh3d.st'],
   theme: 'dark',
   maxThreads: 30,
   minimizeToTray: true,

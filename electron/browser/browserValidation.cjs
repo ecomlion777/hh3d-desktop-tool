@@ -3,10 +3,8 @@
  */
 
 const crypto = require('crypto');
-const {
-  PARTITION_PREFIX,
-  ALLOWED_HOSTS
-} = require('./browserConstants.cjs');
+const { PARTITION_PREFIX, DEFAULT_ALLOWED_HOSTS } = require('./browserConstants.cjs');
+const { isAllowedWebsiteUrl } = require('../website/websiteValidation.cjs');
 
 /**
  * Validates profileId presence and type.
@@ -54,28 +52,8 @@ function getPartitionForProfile(profileId) {
 /**
  * Allows HTTPS navigation to configured HH3D domains and their subdomains.
  */
-function isAllowedUrl(urlStr) {
-  if (!urlStr || typeof urlStr !== 'string') {
-    return false;
-  }
-
-  try {
-    const parsed = new URL(urlStr);
-
-    if (parsed.protocol !== 'https:') {
-      return false;
-    }
-
-    const hostname = parsed.hostname.toLowerCase();
-
-    return ALLOWED_HOSTS.some(
-      allowedHost =>
-        hostname === allowedHost ||
-        hostname.endsWith(`.${allowedHost}`)
-    );
-  } catch {
-    return false;
-  }
+function isAllowedUrl(urlStr, allowedHosts = DEFAULT_ALLOWED_HOSTS) {
+  return isAllowedWebsiteUrl(urlStr, allowedHosts);
 }
 
 module.exports = {

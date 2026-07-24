@@ -2,17 +2,20 @@
  * HH3D Desktop Tool - Mini Browser Constants
  */
 
-const TARGET_URL = 'https://hoathinh3d.co/';
+const DEFAULT_TARGET_URL = 'https://hoathinh3d.co/';
+const TARGET_URL = DEFAULT_TARGET_URL;
 
 /**
  * Allowed top-level hosts.
  * hoathinh3d.co currently redirects to hoathinh3d.st, so both domains
  * and their subdomains must be accepted inside the same Mini Browser.
  */
-const ALLOWED_HOSTS = [
+const DEFAULT_ALLOWED_HOSTS = [
   'hoathinh3d.co',
+  'hoathinh3d.com',
   'hoathinh3d.st'
 ];
+const ALLOWED_HOSTS = DEFAULT_ALLOWED_HOSTS;
 
 const DEFAULT_WINDOW_CONFIG = {
   width: 1280,
@@ -39,7 +42,9 @@ const IPC_CHANNELS = {
 
 module.exports = {
   TARGET_URL,
+  DEFAULT_TARGET_URL,
   ALLOWED_HOSTS,
+  DEFAULT_ALLOWED_HOSTS,
   DEFAULT_WINDOW_CONFIG,
   PARTITION_PREFIX,
   IPC_CHANNELS

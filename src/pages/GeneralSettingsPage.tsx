@@ -8,7 +8,7 @@ import { GeneralAppSettings } from '../types';
 
 interface GeneralSettingsPageProps {
   settings: GeneralAppSettings;
-  onSaveSettings: (settings: GeneralAppSettings) => void;
+  onSaveSettings: (settings: GeneralAppSettings) => Promise<GeneralAppSettings> | GeneralAppSettings;
 }
 
 export const GeneralSettingsPage: React.FC<GeneralSettingsPageProps> = (props) => {

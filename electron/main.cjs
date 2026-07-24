@@ -17,6 +17,7 @@ const WorkerHttpClient = require('./worker/WorkerHttpClient.cjs');
 const ProfileWorkerManager = require('./worker/ProfileWorkerManager.cjs');
 const SystemStatsService = require('./worker/SystemStatsService.cjs');
 const { WORKER_IPC_CHANNELS } = require('./worker/workerConstants.cjs');
+const WebsiteConfigService = require('./website/WebsiteConfigService.cjs');
 
 const gotTheLock = app.requestSingleInstanceLock();
 
@@ -36,6 +37,8 @@ if (!gotTheLock) {
   const groupRepo = new GroupRepository(db);
   const proxySecretStore = new ProxySecretStore();
   const proxyRepository = new ProxyRepository(db, proxySecretStore);
+  const workerSettingsRepository = new WorkerSettingsRepository(db);
+  const websiteConfigService = new WebsiteConfigService(workerSettingsRepository);
 
   const devUrl = process.env.VITE_DEV_SERVER_URL;
   const isDevelopment = Boolean(devUrl);
@@ -50,12 +53,14 @@ if (!gotTheLock) {
     profileRepo,
     proxyRepository,
     proxySecretStore,
+    websiteConfigService,
     broadcastCallback: broadcast
   });
 
   const profileBrowserManager = new ProfileBrowserManager({
     profileRepo,
     proxySessionManager,
+    websiteConfigService,
     broadcastCallback: broadcast,
     isDevelopment
   });
@@ -69,11 +74,11 @@ if (!gotTheLock) {
   });
 
   const workerLogRepository = new WorkerLogRepository(db);
-  const workerSettingsRepository = new WorkerSettingsRepository(db);
   const batchRepository = new BatchRepository(db);
   const workerHttpClient = new WorkerHttpClient({
     proxySessionManager,
-    settingsRepository: workerSettingsRepository
+    settingsRepository: workerSettingsRepository,
+    websiteConfigService
   });
   const workerManager = new ProfileWorkerManager({
     profileRepo,
@@ -558,8 +563,25 @@ if (!gotTheLock) {
 
     ipcMain.handle('settings:general:save', async (_event, settings) => {
       ensureWorkerServicesReady();
+      const previous = workerSettingsRepository.getGeneralSettings();
       const result = await workerSettingsRepository.saveGeneralSettings(settings);
+      const websiteChanged =
+        previous.websiteBaseUrl !== result.websiteBaseUrl ||
+        JSON.stringify(previous.websiteAllowedHosts || []) !== JSON.stringify(result.websiteAllowedHosts || []);
+
       await workerManager.setMaxConcurrency(result.maxThreads);
+
+      if (websiteChanged) {
+        // Avoid mixed-domain runtime state. Cookies and persistent partitions are
+        // preserved; only active workers/windows are stopped and may be reopened.
+        await workerManager.stopAll('website-domain-change');
+        await profileBrowserManager.closeAllBrowsers();
+        broadcast('website:config-changed', {
+          baseUrl: result.websiteBaseUrl,
+          allowedHosts: [...result.websiteAllowedHosts]
+        });
+      }
+
       return result;
     });
 

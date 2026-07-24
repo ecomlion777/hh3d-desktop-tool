@@ -3,13 +3,13 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { Settings, Save, CheckCircle2, Download, HardDrive, Info, FolderCheck, Database, FileCode, ShieldCheck, KeyRound } from 'lucide-react';
+import { Settings, Save, CheckCircle2, Download, HardDrive, Info, FolderCheck, Database, FileCode, ShieldCheck, KeyRound, Globe2, AlertTriangle } from 'lucide-react';
 import { GeneralAppSettings, DesktopVersions, DesktopStorageInfo, ProxyStorageInfo, WorkerSummary } from '../../types';
 import { appBridge } from '../../services/appBridgeService';
 
 interface GeneralSettingsViewProps {
   settings: GeneralAppSettings;
-  onSaveSettings: (settings: GeneralAppSettings) => void;
+  onSaveSettings: (settings: GeneralAppSettings) => Promise<GeneralAppSettings> | GeneralAppSettings;
 }
 
 export const GeneralSettingsView: React.FC<GeneralSettingsViewProps> = ({
@@ -18,6 +18,8 @@ export const GeneralSettingsView: React.FC<GeneralSettingsViewProps> = ({
 }) => {
   const [form, setForm] = useState<GeneralAppSettings>({ ...settings });
   const [savedSuccess, setSavedSuccess] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const [versions, setVersions] = useState<DesktopVersions>({
     appVersion: '2.5.0',
     electronVersion: '39.8.10',
@@ -35,6 +37,10 @@ export const GeneralSettingsView: React.FC<GeneralSettingsViewProps> = ({
   const [proxyStorageError, setProxyStorageError] = useState<string | null>(null);
   const [workerSummary, setWorkerSummary] = useState<WorkerSummary | null>(null);
   const [workerSummaryError, setWorkerSummaryError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setForm({ ...settings });
+  }, [settings]);
 
   useEffect(() => {
     const statusMap = new Map<string, any>();
@@ -150,11 +156,37 @@ export const GeneralSettingsView: React.FC<GeneralSettingsViewProps> = ({
     }
   }, []);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    onSaveSettings(form);
-    setSavedSuccess(true);
-    setTimeout(() => setSavedSuccess(false), 3000);
+    if (isSaving) return;
+
+    try {
+      setIsSaving(true);
+      setSaveError(null);
+      const normalized = await onSaveSettings(form);
+      setForm({ ...normalized });
+      setSavedSuccess(true);
+      setTimeout(() => setSavedSuccess(false), 3000);
+    } catch (error) {
+      setSaveError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const applyDomainPreset = (hostname: string) => {
+    const nextHosts = Array.from(new Set([
+      hostname,
+      ...(form.websiteAllowedHosts || []),
+      'hoathinh3d.co',
+      'hoathinh3d.com',
+      'hoathinh3d.st'
+    ]));
+    setForm({
+      ...form,
+      websiteBaseUrl: `https://${hostname}/`,
+      websiteAllowedHosts: nextHosts
+    });
   };
 
   const handleExportBackup = () => {
@@ -206,8 +238,77 @@ export const GeneralSettingsView: React.FC<GeneralSettingsViewProps> = ({
         )}
       </div>
 
+      {saveError && (
+        <div className="rounded-lg border border-rose-800 bg-rose-950/60 px-4 py-3 text-xs text-rose-200 flex items-start gap-2">
+          <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
+          <div>
+            <strong className="block mb-0.5">Không thể lưu cấu hình tên miền</strong>
+            <span className="font-mono">{saveError}</span>
+          </div>
+        </div>
+      )}
+
       <form onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
-        
+
+        {/* Website Domain Configuration (Phase 06B) */}
+        <div className="md:col-span-2 bg-slate-900 border border-cyan-900/70 rounded-lg p-4 space-y-4">
+          <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+            <h3 className="font-bold text-cyan-400 uppercase text-[11px] tracking-wider flex items-center gap-1.5">
+              <Globe2 className="w-4 h-4" />
+              Tên Miền Website Hiện Tại
+            </h3>
+            <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-cyan-950 text-cyan-300 border border-cyan-800">Phase 06B</span>
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <label className="block text-slate-300 font-semibold">Tên miền chính / Base URL</label>
+              <input
+                type="text"
+                value={form.websiteBaseUrl}
+                onChange={e => setForm({ ...form, websiteBaseUrl: e.target.value })}
+                placeholder="hoathinh3d.co hoặc https://hoathinh3d.co/"
+                spellCheck={false}
+                className="w-full bg-slate-950 border border-slate-700 rounded px-3 py-2.5 text-cyan-300 font-mono focus:outline-none focus:border-cyan-500"
+              />
+              <div className="flex flex-wrap gap-2">
+                {['hoathinh3d.co', 'hoathinh3d.com', 'hoathinh3d.st'].map(host => (
+                  <button
+                    key={host}
+                    type="button"
+                    onClick={() => applyDomainPreset(host)}
+                    className="px-2.5 py-1.5 rounded border border-slate-700 bg-slate-950 hover:border-cyan-600 hover:text-cyan-300 font-mono text-[11px] transition"
+                  >
+                    {host}
+                  </button>
+                ))}
+              </div>
+              <p className="text-[10px] text-slate-500">Có thể nhập tên miền hoặc URL đầy đủ. Ứng dụng tự chuẩn hóa về HTTPS và trang gốc.</p>
+            </div>
+
+            <div className="space-y-2">
+              <label className="block text-slate-300 font-semibold">Tên miền chuyển hướng được phép</label>
+              <textarea
+                rows={4}
+                value={(form.websiteAllowedHosts || []).join('\n')}
+                onChange={e => setForm({
+                  ...form,
+                  websiteAllowedHosts: e.target.value.split(/[\n,;\s]+/g).map(v => v.trim()).filter(Boolean)
+                })}
+                placeholder={'hoathinh3d.co\nhoathinh3d.com\nhoathinh3d.st'}
+                spellCheck={false}
+                className="w-full resize-none bg-slate-950 border border-slate-700 rounded px-3 py-2 text-slate-300 font-mono focus:outline-none focus:border-cyan-500"
+              />
+              <p className="text-[10px] text-slate-500">Dùng khi website tự chuyển từ .co sang .com, .st hoặc tên miền mới. Domain chính luôn được tự thêm vào danh sách này.</p>
+            </div>
+          </div>
+
+          <div className="rounded border border-amber-900/80 bg-amber-950/30 px-3 py-2 text-[11px] text-amber-200 flex items-start gap-2">
+            <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
+            <span>Khi đổi tên miền, ứng dụng sẽ dừng Worker đang chạy và đóng Mini Browser đang mở để tránh trộn request giữa hai domain. Cookie và persistent session không bị xóa.</span>
+          </div>
+        </div>
+
         {/* Left Card: IPC & Engine Adapter */}
         <div className="bg-slate-900 border border-slate-800 rounded-lg p-4 space-y-4">
           <h3 className="font-bold text-slate-200 uppercase text-[11px] tracking-wider border-b border-slate-800 pb-2 text-cyan-400">
@@ -307,10 +408,11 @@ export const GeneralSettingsView: React.FC<GeneralSettingsViewProps> = ({
           <div className="pt-2">
             <button
               type="submit"
-              className="w-full py-2.5 bg-cyan-600 hover:bg-cyan-500 text-white rounded font-bold transition shadow flex items-center justify-center gap-2"
+              disabled={isSaving}
+              className="w-full py-2.5 bg-cyan-600 hover:bg-cyan-500 disabled:opacity-60 disabled:cursor-not-allowed text-white rounded font-bold transition shadow flex items-center justify-center gap-2"
             >
               <Save className="w-4 h-4" />
-              <span>Lưu Tất Cả Cài Đặt</span>
+              <span>{isSaving ? 'Đang Lưu...' : 'Lưu Tất Cả Cài Đặt'}</span>
             </button>
           </div>
         </div>
@@ -452,7 +554,7 @@ export const GeneralSettingsView: React.FC<GeneralSettingsViewProps> = ({
             </div>
             <div className="bg-slate-950 p-3 rounded border border-slate-800">
               <span className="text-[10px] text-slate-500 uppercase font-semibold block">Target URL</span>
-              <span className="font-mono font-bold text-xs sm:text-sm text-cyan-400 truncate block" title="https://hoathinh3d.co/">https://hoathinh3d.co/</span>
+              <span className="font-mono font-bold text-xs sm:text-sm text-cyan-400 truncate block" title={form.websiteBaseUrl}>{form.websiteBaseUrl}</span>
             </div>
             <div className="bg-slate-950 p-3 rounded border border-slate-800">
               <span className="text-[10px] text-slate-500 uppercase font-semibold block">Định Dạng Partition Mode</span>

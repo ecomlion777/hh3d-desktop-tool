@@ -132,7 +132,7 @@ export class MockAppBridge implements AppBridge {
 
       const storedGen = localStorage.getItem(STORAGE_KEYS.GENERAL_SETTINGS);
       if (storedGen) {
-        this.generalSettings = JSON.parse(storedGen);
+        this.generalSettings = { ...DEFAULT_GENERAL_SETTINGS, ...JSON.parse(storedGen) };
       }
     } catch (err) {
       console.warn('MockAppBridge storage load warning:', err);
@@ -1150,11 +1150,11 @@ export class MockAppBridge implements AppBridge {
     return { ...this.generalSettings };
   }
 
-  async saveGeneralSettings(settings: GeneralAppSettings): Promise<boolean> {
-    this.generalSettings = { ...settings };
+  async saveGeneralSettings(settings: GeneralAppSettings): Promise<GeneralAppSettings> {
+    this.generalSettings = { ...DEFAULT_GENERAL_SETTINGS, ...settings };
     localStorage.setItem(STORAGE_KEYS.GENERAL_SETTINGS, JSON.stringify(this.generalSettings));
-    this.addLogMessage('info', 'GENERAL_SETTINGS', 'Cập nhật cài đặt chung.');
-    return true;
+    this.addLogMessage('info', 'GENERAL_SETTINGS', `Cập nhật tên miền website: ${this.generalSettings.websiteBaseUrl}`);
+    return { ...this.generalSettings };
   }
 
   async getSystemStats(): Promise<SystemStats> {
@@ -1562,9 +1562,8 @@ export class ElectronPreloadBridge implements AppBridge {
   async getGeneralSettings(): Promise<GeneralAppSettings> {
     return this.requireWorkerBridge().getGeneralSettings();
   }
-  async saveGeneralSettings(settings: GeneralAppSettings): Promise<boolean> {
-    await this.requireWorkerBridge().saveGeneralSettings(settings);
-    return true;
+  async saveGeneralSettings(settings: GeneralAppSettings): Promise<GeneralAppSettings> {
+    return this.requireWorkerBridge().saveGeneralSettings(settings);
   }
   async getSystemStats(): Promise<SystemStats> {
     return this.requireWorkerBridge().getSystemStats();

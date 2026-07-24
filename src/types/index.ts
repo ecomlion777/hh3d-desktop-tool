@@ -110,7 +110,7 @@ export interface AppBridge {
   getActivityConfig?(): Promise<ActivityConfig>;
   saveActivityConfig?(config: ActivityConfig): Promise<boolean>;
   getGeneralSettings?(): Promise<GeneralAppSettings>;
-  saveGeneralSettings?(settings: GeneralAppSettings): Promise<boolean>;
+  saveGeneralSettings?(settings: GeneralAppSettings): Promise<GeneralAppSettings>;
   getSystemStats?(): Promise<SystemStats>;
   getStorageInfo?(): Promise<DesktopStorageInfo | null>;
   getVersions?(): Promise<DesktopVersions | null>;

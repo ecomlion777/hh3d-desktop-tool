@@ -469,6 +469,8 @@ export default function App() {
           {currentTab === 'general_settings' && (
             <GeneralSettingsPage
               settings={generalSettings || {
+                websiteBaseUrl: 'https://hoathinh3d.co/',
+                websiteAllowedHosts: ['hoathinh3d.co', 'hoathinh3d.com', 'hoathinh3d.st'],
                 theme: 'dark',
                 maxThreads: 40,
                 minimizeToTray: true,

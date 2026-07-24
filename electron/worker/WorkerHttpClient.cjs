@@ -53,13 +53,27 @@ class WorkerHttpClient {
   constructor(options) {
     this.proxySessionManager = options.proxySessionManager;
     this.settingsRepository = options.settingsRepository;
+    this.websiteConfigService = options.websiteConfigService || null;
+  }
+
+  getWebsiteBaseUrl() {
+    return this.websiteConfigService?.getTargetUrl?.() || 'https://hoathinh3d.co/';
+  }
+
+  buildWebsiteUrl(relativePath = '/') {
+    if (this.websiteConfigService?.buildUrl) {
+      return this.websiteConfigService.buildUrl(relativePath);
+    }
+    return new URL(relativePath, this.getWebsiteBaseUrl()).toString();
   }
 
   async fetch(profile, url, init = {}) {
     if (!profile?.id) {
       throw createWorkerError('WORKER_PROFILE_REQUIRED', 'Thiếu profile hợp lệ.');
     }
-    if (!isAllowedWorkerUrl(url)) {
+    const allowedByCore = isAllowedWorkerUrl(url);
+    const allowedByWebsite = this.websiteConfigService?.isAllowedUrl?.(url) || false;
+    if (!allowedByCore && !allowedByWebsite) {
       throw createWorkerError('WORKER_URL_NOT_ALLOWED', `URL không được phép: ${url}`);
     }
 

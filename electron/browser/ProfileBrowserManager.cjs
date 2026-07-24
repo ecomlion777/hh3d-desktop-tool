@@ -4,7 +4,7 @@
  */
 
 const { BrowserWindow, session } = require('electron');
-const { TARGET_URL, DEFAULT_WINDOW_CONFIG, IPC_CHANNELS } = require('./browserConstants.cjs');
+const { DEFAULT_TARGET_URL, DEFAULT_WINDOW_CONFIG, IPC_CHANNELS } = require('./browserConstants.cjs');
 const { validateProfileId, getPartitionForProfile, isAllowedUrl, sanitizeProfileId } = require('./browserValidation.cjs');
 
 /**
@@ -87,11 +87,13 @@ class ProfileBrowserManager {
       this.broadcastCallback = optionsOrProfileRepo.broadcastCallback || (() => {});
       this.isDevelopment = Boolean(optionsOrProfileRepo.isDevelopment);
       this.proxySessionManager = optionsOrProfileRepo.proxySessionManager || null;
+      this.websiteConfigService = optionsOrProfileRepo.websiteConfigService || null;
     } else {
       this.profileRepo = optionsOrProfileRepo;
       this.broadcastCallback = broadcastCallback || (() => {});
       this.isDevelopment = false;
       this.proxySessionManager = null;
+      this.websiteConfigService = null;
     }
 
     /**
@@ -127,6 +129,21 @@ class ProfileBrowserManager {
 
   setProxySessionManager(manager) {
     this.proxySessionManager = manager;
+  }
+
+  setWebsiteConfigService(service) {
+    this.websiteConfigService = service;
+  }
+
+  getTargetUrl() {
+    return this.websiteConfigService?.getTargetUrl?.() || DEFAULT_TARGET_URL;
+  }
+
+  isAllowedNavigationUrl(urlString) {
+    if (this.websiteConfigService?.isAllowedUrl) {
+      return this.websiteConfigService.isAllowedUrl(urlString);
+    }
+    return isAllowedUrl(urlString);
   }
 
   /**
@@ -220,21 +237,21 @@ class ProfileBrowserManager {
     });
 
     contents.on('will-navigate', (event, navUrl) => {
-      if (!isAllowedUrl(navUrl)) {
+      if (!this.isAllowedNavigationUrl(navUrl)) {
         console.warn(`[ProfileBrowserManager] Blocked navigation to disallowed URL: ${navUrl}`);
         event.preventDefault();
       }
     });
 
     contents.on('will-redirect', (event, navUrl) => {
-      if (!isAllowedUrl(navUrl)) {
+      if (!this.isAllowedNavigationUrl(navUrl)) {
         console.warn(`[ProfileBrowserManager] Blocked redirect to disallowed URL: ${navUrl}`);
         event.preventDefault();
       }
     });
 
     contents.setWindowOpenHandler(({ url }) => {
-      if (isAllowedUrl(url)) {
+      if (this.isAllowedNavigationUrl(url)) {
         const childWin = new BrowserWindow({
           width: 1024,
           height: 720,
@@ -385,7 +402,7 @@ class ProfileBrowserManager {
       partition,
       window: win,
       openedAt: new Date().toISOString(),
-      lastUrl: TARGET_URL,
+      lastUrl: this.getTargetUrl(),
       title: windowTitle,
       state: 'opening',
       error: undefined,
@@ -477,7 +494,7 @@ class ProfileBrowserManager {
 
     // Load target URL
     try {
-      await win.loadURL(TARGET_URL);
+      await win.loadURL(this.getTargetUrl());
       browserEntry.initialLoadPending = false;
     } catch (err) {
       console.error(`[ProfileBrowserManager] loadURL failed for ${profileId}:`, err);

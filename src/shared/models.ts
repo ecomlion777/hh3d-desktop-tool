@@ -318,6 +318,8 @@ export interface ActivityConfig {
 }
 
 export interface GeneralAppSettings {
+  websiteBaseUrl: string;
+  websiteAllowedHosts: string[];
   theme: 'dark' | 'midnight' | 'cyberpunk';
   maxThreads: number;
   minimizeToTray: boolean;

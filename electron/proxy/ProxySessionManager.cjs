@@ -3,23 +3,32 @@
  */
 
 const { session } = require('electron');
-const { TARGET_URL } = require('../browser/browserConstants.cjs');
+const { DEFAULT_TARGET_URL } = require('../browser/browserConstants.cjs');
 const { getPartitionForProfile } = require('../browser/browserValidation.cjs');
 const { buildProxyRules } = require('./proxyRules.cjs');
 const { proxyError } = require('./proxyValidation.cjs');
 
 class ProxySessionManager {
-  constructor({ profileRepo, proxyRepository, proxySecretStore, broadcastCallback }) {
+  constructor({ profileRepo, proxyRepository, proxySecretStore, broadcastCallback, websiteConfigService }) {
     this.profileRepo = profileRepo;
     this.proxyRepository = proxyRepository;
     this.proxySecretStore = proxySecretStore;
     this.broadcastCallback = broadcastCallback || (() => {});
     this.profileBrowserManager = null;
+    this.websiteConfigService = websiteConfigService || null;
     this.runtimeStates = new Map();
   }
 
   setProfileBrowserManager(manager) {
     this.profileBrowserManager = manager;
+  }
+
+  setWebsiteConfigService(service) {
+    this.websiteConfigService = service;
+  }
+
+  getTargetUrl() {
+    return this.websiteConfigService?.getTargetUrl?.() || DEFAULT_TARGET_URL;
   }
 
   setState(profileId, patch) {
@@ -136,7 +145,7 @@ class ProxySessionManager {
         await ses.forceReloadProxyConfig();
       }
       await ses.closeAllConnections();
-      const resolvedRule = await ses.resolveProxy(TARGET_URL);
+      const resolvedRule = await ses.resolveProxy(this.getTargetUrl());
 
       if (!resolvedRule || /(^|;)\s*DIRECT\s*($|;)/i.test(resolvedRule)) {
         throw proxyError(

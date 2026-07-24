@@ -437,9 +437,11 @@ export function useAppBridge() {
 
   const saveGeneralSettings = async (settings: GeneralAppSettings) => {
     if (appBridge.saveGeneralSettings) {
-      await appBridge.saveGeneralSettings(settings);
-      setGeneralSettings(settings);
+      const normalized = await appBridge.saveGeneralSettings(settings);
+      setGeneralSettings(normalized);
+      return normalized;
     }
+    return settings;
   };
 
   const clearLogs = async () => {

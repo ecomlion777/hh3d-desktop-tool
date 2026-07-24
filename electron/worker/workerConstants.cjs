@@ -49,6 +49,8 @@ const DEFAULT_ACTIVITY_CONFIG = Object.freeze({
 });
 
 const DEFAULT_GENERAL_SETTINGS = Object.freeze({
+  websiteBaseUrl: 'https://hoathinh3d.co/',
+  websiteAllowedHosts: ['hoathinh3d.co', 'hoathinh3d.com', 'hoathinh3d.st'],
   theme: 'dark',
   maxThreads: 40,
   minimizeToTray: true,
