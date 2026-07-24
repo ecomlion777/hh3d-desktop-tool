@@ -2,7 +2,7 @@
  * HH3D Desktop Tool - Validation Helpers for Local JSON Storage
  */
 
-const SUPPORTED_SCHEMA_VERSION = 3;
+const SUPPORTED_SCHEMA_VERSION = 4;
 
 function validateProfile(profile, existingProfiles, isUpdate = false) {
   if (!profile || typeof profile !== 'object' || Array.isArray(profile)) {
@@ -125,6 +125,11 @@ function validateDatabaseShape(data, options = {}) {
     }
     if (!data.generalSettings || typeof data.generalSettings !== 'object' || Array.isArray(data.generalSettings)) {
       throw new Error('Cấu trúc generalSettings không hợp lệ.');
+    }
+  }
+  if (data.schemaVersion >= 4) {
+    if (!Array.isArray(data.moduleSettings)) {
+      throw new Error('Cấu trúc moduleSettings không hợp lệ (phải là Array).');
     }
   }
 

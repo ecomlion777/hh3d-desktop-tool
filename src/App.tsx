@@ -39,6 +39,8 @@ export default function App() {
     generalSettings,
     miniBrowserStatuses,
     profileProxyStates,
+    moduleCatalog,
+    moduleRuntimeStatuses,
     systemStats,
     refreshData,
     createProfile,
@@ -47,6 +49,7 @@ export default function App() {
     assignGroupForProfiles,
     assignProxyForProfiles,
     toggleModulesForProfiles,
+    runModuleOnce,
     importProfiles,
     startProfiles,
     stopProfiles,
@@ -415,6 +418,7 @@ export default function App() {
               onAssignProxyForSelected={assignProxyForProfiles}
               onQuickImportAndAssignProxies={handleQuickImportAndAssignProxies}
               onToggleModulesForSelected={toggleModulesForProfiles}
+              moduleCatalog={moduleCatalog}
               onImportProfilesFromJSON={importProfiles}
               miniBrowserStatuses={miniBrowserStatuses}
               profileProxyStates={profileProxyStates}
@@ -455,7 +459,11 @@ export default function App() {
           {currentTab === 'activity_settings' && (
             <ActivitySettingsPage
               config={activityConfig}
+              profiles={profiles}
+              moduleCatalog={moduleCatalog}
+              moduleRuntimeStatuses={moduleRuntimeStatuses}
               onSaveConfig={saveActivityConfig}
+              onRunModule={runModuleOnce}
             />
           )}
 

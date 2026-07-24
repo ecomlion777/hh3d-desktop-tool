@@ -29,7 +29,12 @@ import {
   WorkerSummary,
   WorkerStartResult,
   WorkerStopResult,
-  WorkerStartOptions
+  WorkerStartOptions,
+  ModuleCatalogItem,
+  ModuleSetting,
+  ModuleRuntimeStatus,
+  ModuleRunResult,
+  ModuleBulkApplyResult
 } from '../types';
 
 import { DesktopStorageInfo, DesktopVersions } from '../types/electron';
@@ -44,6 +49,24 @@ import {
   DEFAULT_GENERAL_SETTINGS
 } from '../mock';
 
+
+const MOCK_MODULE_CATALOG: ModuleCatalogItem[] = [
+  { code: 'session_check', label: 'Kiểm tra Session / Network', description: 'Core Worker readiness check.', category: 'core', version: '1.0.0', implementationState: 'ready', required: true, defaultEnabled: true, triggers: ['manual', 'worker_start'], order: 0, sourceVersion: 'desktop-core', defaultConfig: {}, runnable: true, catalogVersion: 1 },
+  { code: 'framework_diagnostic', label: 'Chẩn đoán Module Framework', description: 'Web Preview diagnostic only.', category: 'core', version: '1.0.0', implementationState: 'ready', required: false, defaultEnabled: false, triggers: ['manual'], order: 10, sourceVersion: 'desktop-core', defaultConfig: {}, runnable: true, catalogVersion: 1 },
+  ...[
+    ['diem_danh', 'Điểm Danh', 'daily'], ['te_le', 'Tế Lễ', 'daily'], ['van_dap', 'Vấn Đáp', 'daily'],
+    ['thi_luyen', 'Thí Luyện', 'activity'], ['phuc_loi', 'Phúc Lợi', 'activity'], ['hoang_vuc', 'Hoang Vực', 'combat'],
+    ['bi_canh', 'Bí Cảnh', 'combat'], ['khoang_mach', 'Khoáng Mạch', 'resource'], ['tien_duyen', 'Tiên Duyên', 'social'],
+    ['luyen_dan', 'Luyện Đan', 'resource'], ['me_cung', 'Mê Cung', 'combat'], ['do_thach', 'Đổ Thạch', 'activity'],
+    ['hoat_dong_ngay', 'Bảng Hoạt Động Ngày', 'daily'], ['vong_quay_phuc_van', 'Vòng Quay Phúc Vận', 'reward'],
+    ['promo_code', 'Mã Thưởng', 'reward']
+  ].map(([code, label, category], index) => ({
+    code, label, category, description: `Khung module ${label}; chưa gọi API game trong Phase 07.`, version: '0.1.0',
+    implementationState: 'planned' as const, required: false, defaultEnabled: false,
+    triggers: ['manual', 'worker_start'] as ('manual' | 'worker_start')[], order: 100 + index * 10,
+    sourceVersion: '5.4.8', defaultConfig: {}, runnable: false, catalogVersion: 1
+  }))
+];
 
 const STORAGE_KEYS = {
   PROFILES: 'hh3d_desktop_profiles_v1',
@@ -71,6 +94,9 @@ export class MockAppBridge implements AppBridge {
   private batchSubscribers: ((batches: BatchTask[]) => void)[] = [];
   private logSubscribers: ((logs: LogEntry[]) => void)[] = [];
   private statsSubscribers: ((stats: SystemStats) => void)[] = [];
+  private moduleStatusSubscribers: ((status: ModuleRuntimeStatus) => void)[] = [];
+  private moduleSettingsSubscribers: ((payload: any) => void)[] = [];
+  private mockModuleStatuses: Map<string, ModuleRuntimeStatus> = new Map();
   private activeBatchIntervals: Map<string, ReturnType<typeof setInterval>> = new Map();
 
   private notifyBatchesUpdated() {
@@ -259,7 +285,7 @@ export class MockAppBridge implements AppBridge {
       lastLoginAt: profileData.lastLoginAt || nowISO,
       lastRunAt: profileData.lastRunAt || nowISO,
       nextRunAt: profileData.nextRunAt || nowISO,
-      enabledModules: profileData.enabledModules || ['daily_quest', 'dungeon'],
+      enabledModules: profileData.enabledModules || [],
       createdAt: profileData.createdAt || nowISO,
       updatedAt: profileData.updatedAt || nowISO,
 
@@ -391,7 +417,7 @@ export class MockAppBridge implements AppBridge {
         lastLoginAt: nowISO,
         lastRunAt: nowISO,
         nextRunAt: nowISO,
-        enabledModules: pData.enabledModules || ['daily_quest', 'dungeon'],
+        enabledModules: pData.enabledModules || [],
         createdAt: nowISO,
         updatedAt: nowISO,
         stt: sttVal,
@@ -1157,6 +1183,86 @@ export class MockAppBridge implements AppBridge {
     return { ...this.generalSettings };
   }
 
+  async listModuleCatalog(): Promise<ModuleCatalogItem[]> {
+    return MOCK_MODULE_CATALOG.map(item => ({ ...item, triggers: [...item.triggers], defaultConfig: { ...item.defaultConfig } }));
+  }
+
+  async getProfileModuleSettings(profileId: string): Promise<ModuleSetting[]> {
+    const profile = this.profiles.find(item => item.id === profileId);
+    if (!profile) throw new Error(`Profile ID "${profileId}" không tồn tại.`);
+    return MOCK_MODULE_CATALOG.map(manifest => ({
+      profileId,
+      moduleCode: manifest.code,
+      enabled: manifest.required || (profile.enabledModules || []).includes(manifest.code),
+      config: {},
+      manifest,
+      updatedAt: new Date().toISOString()
+    }));
+  }
+
+  async saveProfileModuleSettings(profileId: string, settings: ModuleSetting[]): Promise<ModuleSetting[]> {
+    const enabled = settings.filter(item => item.enabled && item.moduleCode !== 'session_check').map(item => item.moduleCode);
+    await this.toggleModulesForProfiles([profileId], enabled);
+    this.moduleSettingsSubscribers.forEach(callback => callback({ profileIds: [profileId], enabledModuleCodes: enabled }));
+    return this.getProfileModuleSettings(profileId);
+  }
+
+  async applyModulesToProfiles(profileIds: string[], moduleCodes: string[], mode: 'replace' | 'merge' = 'replace'): Promise<ModuleBulkApplyResult> {
+    const requested = Array.from(new Set(moduleCodes));
+    this.profiles = this.profiles.map(profile => {
+      if (!profileIds.includes(profile.id)) return profile;
+      const enabledModules = mode === 'merge'
+        ? Array.from(new Set([...(profile.enabledModules || []), ...requested]))
+        : [...requested];
+      return { ...profile, enabledModules, updatedAt: new Date().toISOString() };
+    });
+    this.persistProfiles();
+    this.moduleSettingsSubscribers.forEach(callback => callback({ profileIds, enabledModuleCodes: requested, mode }));
+    return {
+      profileIds: [...profileIds],
+      enabledModuleCodes: requested,
+      mode,
+      updatedProfiles: this.profiles.filter(profile => profileIds.includes(profile.id))
+    };
+  }
+
+  async runModuleOnce(profileId: string, moduleCode: string): Promise<ModuleRunResult> {
+    const manifest = MOCK_MODULE_CATALOG.find(item => item.code === moduleCode);
+    if (!manifest || !manifest.runnable) throw new Error(`MODULE_NOT_IMPLEMENTED: Module ${moduleCode} chưa sẵn sàng.`);
+    const startedAt = new Date().toISOString();
+    const status: ModuleRuntimeStatus = {
+      profileId, moduleCode, state: 'success', trigger: 'manual', startedAt,
+      finishedAt: new Date().toISOString(), durationMs: 1,
+      summary: 'Web Preview module simulation hoàn tất.', updatedAt: new Date().toISOString()
+    };
+    this.mockModuleStatuses.set(`${profileId}:${moduleCode}`, status);
+    this.moduleStatusSubscribers.forEach(callback => callback({ ...status }));
+    return {
+      profileId, moduleCode, state: 'success', outcome: 'success', summary: status.summary || '',
+      durationMs: 1, data: { mock: true }, startedAt, finishedAt: status.finishedAt || startedAt
+    };
+  }
+
+  async getModuleRuntimeStatus(profileId: string, moduleCode: string): Promise<ModuleRuntimeStatus> {
+    return this.mockModuleStatuses.get(`${profileId}:${moduleCode}`) || {
+      profileId, moduleCode, state: 'idle', trigger: 'manual', updatedAt: new Date().toISOString()
+    };
+  }
+
+  async listModuleRuntimeStatuses(): Promise<ModuleRuntimeStatus[]> {
+    return Array.from(this.mockModuleStatuses.values()).map(item => ({ ...item }));
+  }
+
+  onModuleStatusChanged(callback: (status: ModuleRuntimeStatus) => void): () => void {
+    this.moduleStatusSubscribers.push(callback);
+    return () => { this.moduleStatusSubscribers = this.moduleStatusSubscribers.filter(item => item !== callback); };
+  }
+
+  onModuleSettingsChanged(callback: (payload: any) => void): () => void {
+    this.moduleSettingsSubscribers.push(callback);
+    return () => { this.moduleSettingsSubscribers = this.moduleSettingsSubscribers.filter(item => item !== callback); };
+  }
+
   async getSystemStats(): Promise<SystemStats> {
     const runningCount = this.profiles.filter(p => p.status === 'running').length;
     return {
@@ -1359,13 +1465,8 @@ export class ElectronPreloadBridge implements AppBridge {
   }
 
   async toggleModulesForProfiles(ids: string[], enabledModules: string[]): Promise<boolean> {
-    if (this.bridge?.updateProfile) {
-      for (const id of ids) {
-        await this.bridge.updateProfile(id, { enabledModules });
-      }
-      return true;
-    }
-    throw new Error('API desktopBridge.updateProfile() không khả dụng trong môi trường Electron.');
+    await this.requireModuleBridge().applyModulesToProfiles(ids, enabledModules, 'replace');
+    return true;
   }
 
   async importProfiles(importedProfiles: Partial<Profile>[]): Promise<boolean> {
@@ -1417,6 +1518,36 @@ export class ElectronPreloadBridge implements AppBridge {
   async stopGroup(groupName: string): Promise<boolean> {
     await this.requireWorkerBridge().stopWorkerGroup(groupName);
     return true;
+  }
+
+  private requireModuleBridge() {
+    const bridge = this.bridge;
+    if (!bridge?.listModuleCatalog || !bridge?.applyModulesToProfiles) {
+      throw new Error('Electron Module Framework IPC không khả dụng.');
+    }
+    return bridge;
+  }
+
+  async listModuleCatalog(): Promise<ModuleCatalogItem[]> {
+    return this.requireModuleBridge().listModuleCatalog();
+  }
+  async getProfileModuleSettings(profileId: string): Promise<ModuleSetting[]> {
+    return this.requireModuleBridge().getProfileModuleSettings(profileId);
+  }
+  async saveProfileModuleSettings(profileId: string, settings: ModuleSetting[]): Promise<ModuleSetting[]> {
+    return this.requireModuleBridge().saveProfileModuleSettings(profileId, settings);
+  }
+  async applyModulesToProfiles(profileIds: string[], moduleCodes: string[], mode: 'replace' | 'merge' = 'replace'): Promise<ModuleBulkApplyResult> {
+    return this.requireModuleBridge().applyModulesToProfiles(profileIds, moduleCodes, mode);
+  }
+  async runModuleOnce(profileId: string, moduleCode: string): Promise<ModuleRunResult> {
+    return this.requireModuleBridge().runModuleOnce(profileId, moduleCode);
+  }
+  async getModuleRuntimeStatus(profileId: string, moduleCode: string): Promise<ModuleRuntimeStatus> {
+    return this.requireModuleBridge().getModuleRuntimeStatus(profileId, moduleCode);
+  }
+  async listModuleRuntimeStatuses(): Promise<ModuleRuntimeStatus[]> {
+    return this.requireModuleBridge().listModuleRuntimeStatuses();
   }
 
   // Storage & System Info
@@ -1598,6 +1729,12 @@ export class ElectronPreloadBridge implements AppBridge {
   }
   onWorkerSummaryChanged(callback: (summary: WorkerSummary) => void): () => void {
     return this.requireWorkerBridge().onWorkerSummaryChanged(callback);
+  }
+  onModuleStatusChanged(callback: (status: ModuleRuntimeStatus) => void): () => void {
+    return this.requireModuleBridge().onModuleStatusChanged(callback);
+  }
+  onModuleSettingsChanged(callback: (payload: any) => void): () => void {
+    return this.requireModuleBridge().onModuleSettingsChanged(callback);
   }
 }
 

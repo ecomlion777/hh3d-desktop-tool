@@ -14,7 +14,7 @@ const {
 class FakeDatabase {
   constructor() {
     this.data = {
-      schemaVersion: 3,
+      schemaVersion: 4,
       profiles: [],
       groups: [],
       proxies: [],
@@ -22,7 +22,8 @@ class FakeDatabase {
       logs: [],
       workerSettings: {},
       activityConfig: {},
-      generalSettings: {}
+      generalSettings: {},
+      moduleSettings: []
     };
   }
 

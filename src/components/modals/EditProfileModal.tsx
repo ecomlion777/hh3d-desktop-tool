@@ -16,13 +16,6 @@ interface EditProfileModalProps {
   onSubmit: (id: string, updatedData: Partial<Profile>) => Promise<void>;
 }
 
-const AVAILABLE_MODULES = [
-  { code: 'daily_quest', label: 'Nhiệm Vụ Hàng Ngày', desc: 'Tự động làm nv daily' },
-  { code: 'dungeon', label: 'Vượt Phụ Bản', desc: 'Chạy phó bản nguyên liệu/kinh nghiệm' },
-  { code: 'boss_raid', label: 'Săn Boss Thế Giới', desc: 'Tham gia đánh Boss theo giờ' },
-  { code: 'clear_inventory', label: 'Dọn Dẹp Túi Đồ', desc: 'Bán đồ rác, dọn rương' },
-  { code: 'claim_mail', label: 'Nhận Thư & Quà', desc: 'Thu thập tất cả phần thưởng thư' }
-];
 
 export const EditProfileModal: React.FC<EditProfileModalProps> = ({
   isOpen,
@@ -39,7 +32,6 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({
   const [selectedProxyId, setSelectedProxyId] = useState('');
   const [level, setLevel] = useState<number>(70);
   const [stamina, setStamina] = useState<number>(100);
-  const [enabledModules, setEnabledModules] = useState<string[]>([]);
   const [notes, setNotes] = useState('');
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -55,7 +47,6 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({
       setSelectedProxyId(profile.proxyId || '');
       setLevel(profile.level || 70);
       setStamina(profile.stamina || 100);
-      setEnabledModules(profile.enabledModules || ['daily_quest', 'dungeon']);
       setNotes(profile.notes || '');
       setErrorMsg(null);
     }
@@ -63,11 +54,6 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({
 
   if (!isOpen || !profile) return null;
 
-  const handleToggleModule = (code: string) => {
-    setEnabledModules(prev =>
-      prev.includes(code) ? prev.filter(c => c !== code) : [...prev, code]
-    );
-  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -108,7 +94,6 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({
         currentIp: pxIp,
         level: Number(level) || 1,
         stamina: Number(stamina) || 0,
-        enabledModules,
         notes: notes.trim()
       });
       onClose();
@@ -238,31 +223,9 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({
             </div>
           </div>
 
-          {/* Enable / Disable Modules */}
-          <div>
-            <label className="block text-slate-400 font-medium mb-1.5">Bật / Tắt Module Kịch Bản</label>
-            <div className="space-y-1.5 bg-slate-950 p-2.5 rounded border border-slate-800">
-              {AVAILABLE_MODULES.map(m => {
-                const isChecked = enabledModules.includes(m.code);
-                return (
-                  <label
-                    key={m.code}
-                    className="flex items-center justify-between p-1.5 rounded hover:bg-slate-900 cursor-pointer transition"
-                  >
-                    <div>
-                      <span className="font-semibold text-slate-200">{m.label}</span>
-                      <span className="block text-[10px] text-slate-500">{m.desc}</span>
-                    </div>
-                    <input
-                      type="checkbox"
-                      checked={isChecked}
-                      onChange={() => handleToggleModule(m.code)}
-                      className="rounded border-slate-700 bg-slate-900 text-cyan-600 focus:ring-0 w-4 h-4 cursor-pointer"
-                    />
-                  </label>
-                );
-              })}
-            </div>
+
+          <div className="rounded border border-cyan-900/70 bg-cyan-950/20 px-3 py-2 text-[11px] text-cyan-200">
+            Module được quản lý bằng nút <strong>Module</strong> trong Profile Manager để bảo đảm đồng bộ với Module Framework.
           </div>
 
           {/* Notes */}

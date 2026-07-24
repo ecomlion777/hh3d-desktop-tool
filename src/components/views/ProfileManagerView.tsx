@@ -24,7 +24,7 @@ import {
   UserPlus,
   Info
 } from 'lucide-react';
-import { Profile, ProfileStatus, GroupItem, ProxyItem, ProfileProxyState, ProxyImportItem } from '../../types';
+import { Profile, ProfileStatus, GroupItem, ProxyItem, ProfileProxyState, ProxyImportItem, ModuleCatalogItem } from '../../types';
 import { MiniBrowserStatus } from '../../types/electron';
 
 import { EditProfileModal } from '../modals/EditProfileModal';
@@ -60,6 +60,7 @@ interface ProfileManagerViewProps {
   onAssignProxyForSelected: (ids: string[], proxyId: string) => Promise<void>;
   onQuickImportAndAssignProxies: (profileIds: string[], proxyItems: ProxyImportItem[]) => Promise<unknown>;
   onToggleModulesForSelected: (ids: string[], enabledModules: string[]) => Promise<void>;
+  moduleCatalog: ModuleCatalogItem[];
   onImportProfilesFromJSON: (importedProfiles: Partial<Profile>[]) => Promise<void>;
   miniBrowserStatuses?: Record<string, MiniBrowserStatus>;
   profileProxyStates?: Record<string, ProfileProxyState>;
@@ -340,6 +341,7 @@ export const ProfileManagerView: React.FC<ProfileManagerViewProps> = ({
   onAssignProxyForSelected,
   onQuickImportAndAssignProxies,
   onToggleModulesForSelected,
+  moduleCatalog,
   onImportProfilesFromJSON,
   miniBrowserStatuses = {},
   profileProxyStates = {},
@@ -390,6 +392,18 @@ export const ProfileManagerView: React.FC<ProfileManagerViewProps> = ({
 
     return { total: profiles.length, running, waiting, stopped, proxyError, loginRequired };
   }, [profiles, profileProxyStates]);
+
+  const commonEnabledModules = useMemo(() => {
+    const selectedProfiles = selectedIds
+      .map(profileId => profiles.find(profile => profile.id === profileId))
+      .filter((profile): profile is Profile => Boolean(profile));
+    if (selectedProfiles.length === 0) return [];
+    const catalogCodes = new Set(moduleCatalog.map(module => module.code));
+    return (selectedProfiles[0].enabledModules || []).filter(code =>
+      catalogCodes.has(code)
+      && selectedProfiles.every(profile => (profile.enabledModules || []).includes(code))
+    );
+  }, [selectedIds, profiles, moduleCatalog]);
 
   // Filter profiles
   const filteredProfiles = useMemo(() => {
@@ -797,6 +811,8 @@ export const ProfileManagerView: React.FC<ProfileManagerViewProps> = ({
       <ToggleModulesModal
         isOpen={isToggleModulesOpen}
         selectedCount={selectedIds.length}
+        modules={moduleCatalog}
+        initialEnabledModules={commonEnabledModules}
         onClose={() => setIsToggleModulesOpen(false)}
         onSubmit={async (modules) => {
           await onToggleModulesForSelected(selectedIds, modules);

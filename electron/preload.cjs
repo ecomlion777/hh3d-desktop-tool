@@ -59,6 +59,16 @@ contextBridge.exposeInMainWorld('desktopBridge', {
   onWorkerSummaryChanged: callback => subscribe('workers:summary-changed', callback),
   onProfilesChanged: callback => subscribe('profiles:changed', callback),
 
+  listModuleCatalog: () => ipcRenderer.invoke('modules:list-catalog'),
+  getProfileModuleSettings: profileId => ipcRenderer.invoke('modules:get-profile-settings', profileId),
+  saveProfileModuleSettings: (profileId, settings) => ipcRenderer.invoke('modules:save-profile-settings', profileId, settings),
+  applyModulesToProfiles: (profileIds, moduleCodes, mode) => ipcRenderer.invoke('modules:apply-to-profiles', profileIds, moduleCodes, mode),
+  runModuleOnce: (profileId, moduleCode) => ipcRenderer.invoke('modules:run-once', profileId, moduleCode),
+  getModuleRuntimeStatus: (profileId, moduleCode) => ipcRenderer.invoke('modules:get-runtime-status', profileId, moduleCode),
+  listModuleRuntimeStatuses: () => ipcRenderer.invoke('modules:list-runtime-statuses'),
+  onModuleStatusChanged: callback => subscribe('modules:status-changed', callback),
+  onModuleSettingsChanged: callback => subscribe('modules:settings-changed', callback),
+
   listBatches: () => ipcRenderer.invoke('batches:list'),
   createBatch: input => ipcRenderer.invoke('batches:create', input),
   updateBatch: (batchId, changes) => ipcRenderer.invoke('batches:update', batchId, changes),

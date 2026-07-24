@@ -14,6 +14,7 @@ const {
   DEFAULT_ACTIVITY_CONFIG,
   DEFAULT_GENERAL_SETTINGS
 } = require('../worker/workerConstants.cjs');
+const { repairLegacyModuleData } = require('../modules/moduleCompatibility.cjs');
 
 const SCHEMA_VERSION = SUPPORTED_SCHEMA_VERSION;
 
@@ -91,6 +92,16 @@ class JsonDatabase {
     };
   }
 
+
+  migrateV3ToV4(data) {
+    return {
+      ...data,
+      schemaVersion: 4,
+      updatedAt: new Date().toISOString(),
+      moduleSettings: Array.isArray(data.moduleSettings) ? data.moduleSettings : []
+    };
+  }
+
   migrateToCurrent(input) {
     validateDatabaseShape(input, { allowLegacy: true });
 
@@ -114,7 +125,19 @@ class JsonDatabase {
         migrated = true;
         continue;
       }
+      if (data.schemaVersion === 3) {
+        data = this.migrateV3ToV4(data);
+        migrated = true;
+        continue;
+      }
       throw new Error(`Không có migration cho schemaVersion ${data.schemaVersion}.`);
+    }
+
+    const compatibilityRepair = repairLegacyModuleData(data);
+    if (compatibilityRepair.changed) {
+      data = compatibilityRepair.data;
+      migrated = true;
+      console.log('[JsonDatabase] Removed legacy pre-Phase-07 module IDs from profile settings.');
     }
 
     validateDatabaseShape(data, { allowLegacy: false });
@@ -137,7 +160,7 @@ class JsonDatabase {
       console.log(
         `[JsonDatabase] Successfully loaded ${this.data.profiles.length} profiles, ` +
         `${this.data.groups.length} groups, ${this.data.proxies.length} proxies and ` +
-        `${this.data.batches.length} batches.`
+        `${this.data.batches.length} batches and ${this.data.moduleSettings.length} module settings.`
       );
     } catch (err) {
       console.error('[JsonDatabase] Primary database load failed:', err.message);
@@ -208,6 +231,7 @@ class JsonDatabase {
       proxies: Array.isArray(newData.proxies) ? newData.proxies : [],
       batches: Array.isArray(newData.batches) ? newData.batches : [],
       logs: Array.isArray(newData.logs) ? newData.logs : [],
+      moduleSettings: Array.isArray(newData.moduleSettings) ? newData.moduleSettings : [],
       workerSettings: {
         ...DEFAULT_WORKER_SETTINGS,
         ...(newData.workerSettings || {})
@@ -257,7 +281,8 @@ class JsonDatabase {
       groupCount: this.data?.groups?.length || 0,
       proxyCount: this.data?.proxies?.length || 0,
       batchCount: this.data?.batches?.length || 0,
-      logCount: this.data?.logs?.length || 0
+      logCount: this.data?.logs?.length || 0,
+      moduleSettingCount: this.data?.moduleSettings?.length || 0
     };
   }
 
@@ -308,7 +333,7 @@ class JsonDatabase {
         lastLoginAt: nowISO,
         lastRunAt: nowISO,
         nextRunAt: nowISO,
-        enabledModules: ['daily_quest', 'dungeon', 'clear_inventory'],
+        enabledModules: [],
         createdAt: nowISO,
         updatedAt: nowISO
       });
@@ -322,6 +347,7 @@ class JsonDatabase {
       proxies: [],
       batches: [],
       logs: [],
+      moduleSettings: [],
       workerSettings: { ...DEFAULT_WORKER_SETTINGS },
       activityConfig: { ...DEFAULT_ACTIVITY_CONFIG },
       generalSettings: { ...DEFAULT_GENERAL_SETTINGS }

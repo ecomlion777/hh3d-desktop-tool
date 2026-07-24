@@ -86,7 +86,8 @@ async function main() {
 
   const db = new JsonDatabase();
   await db.init();
-  assert.equal(db.getData().schemaVersion, 3);
+  assert.equal(db.getData().schemaVersion, 4);
+  assert.deepEqual(db.getData().moduleSettings, []);
   assert.deepEqual(db.getData().proxies, []);
   assert.deepEqual(db.getData().batches, []);
   assert.deepEqual(db.getData().logs, []);

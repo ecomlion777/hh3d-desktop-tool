@@ -23,7 +23,12 @@ import {
   WorkerSummary,
   WorkerStartResult,
   WorkerStopResult,
-  WorkerStartOptions
+  WorkerStartOptions,
+  ModuleCatalogItem,
+  ModuleSetting,
+  ModuleRuntimeStatus,
+  ModuleRunResult,
+  ModuleBulkApplyResult
 } from '../shared';
 import {
   MiniBrowserStatus,
@@ -52,6 +57,13 @@ export interface AppBridge {
   getWorkerStatus?(profileId: string): Promise<ProfileWorkerStatus>;
   listWorkerStatuses?(): Promise<ProfileWorkerStatus[]>;
   getWorkerSummary?(): Promise<WorkerSummary>;
+  listModuleCatalog?(): Promise<ModuleCatalogItem[]>;
+  getProfileModuleSettings?(profileId: string): Promise<ModuleSetting[]>;
+  saveProfileModuleSettings?(profileId: string, settings: ModuleSetting[]): Promise<ModuleSetting[]>;
+  applyModulesToProfiles?(profileIds: string[], moduleCodes: string[], mode?: 'replace' | 'merge'): Promise<ModuleBulkApplyResult>;
+  runModuleOnce?(profileId: string, moduleCode: string): Promise<ModuleRunResult>;
+  getModuleRuntimeStatus?(profileId: string, moduleCode: string): Promise<ModuleRuntimeStatus>;
+  listModuleRuntimeStatuses?(): Promise<ModuleRuntimeStatus[]>;
   openMiniBrowser(profileId: string): Promise<MiniBrowserStatus>;
   closeMiniBrowser?(profileId: string): Promise<MiniBrowserStatus>;
   focusMiniBrowser?(profileId: string): Promise<boolean>;
@@ -126,4 +138,6 @@ export interface AppBridge {
   onProfileProxyStateChanged?(callback: (state: ProfileProxyState) => void): () => void;
   onWorkerStatusChanged?(callback: (status: ProfileWorkerStatus) => void): () => void;
   onWorkerSummaryChanged?(callback: (summary: WorkerSummary) => void): () => void;
+  onModuleStatusChanged?(callback: (status: ModuleRuntimeStatus) => void): () => void;
+  onModuleSettingsChanged?(callback: (payload: any) => void): () => void;
 }

@@ -113,7 +113,9 @@ export const ImportProfilesModal: React.FC<ImportProfilesModalProps> = ({
         currentActivity: item.currentActivity || 'Nhập từ JSON',
         level: Number(item.level) || 70,
         stamina: Number(item.stamina) || 100,
-        enabledModules: Array.isArray(item.enabledModules) ? item.enabledModules : ['daily_quest', 'dungeon'],
+        enabledModules: Array.isArray(item.enabledModules)
+          ? item.enabledModules.filter((code: unknown): code is string => typeof code === 'string')
+          : [],
         notes: item.notes || ''
       });
     }

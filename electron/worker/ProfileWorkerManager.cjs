@@ -22,6 +22,7 @@ class ProfileWorkerManager {
     this.logRepository = options.logRepository;
     this.batchRepository = options.batchRepository;
     this.settingsRepository = options.settingsRepository;
+    this.moduleRunner = options.moduleRunner;
     this.broadcastCallback = options.broadcastCallback || (() => {});
 
     this.queue = [];
@@ -168,8 +169,9 @@ class ProfileWorkerManager {
       this.queue.push({
         profileId,
         batchId: options.batchId,
-        activityType: options.activityType || 'Worker Core Session Check',
-        concurrency: options.concurrency
+        activityType: options.activityType || 'Module Framework Worker',
+        concurrency: options.concurrency,
+        moduleCodes: Array.isArray(options.moduleCodes) ? [...options.moduleCodes] : undefined
       });
       accepted.push(profileId);
 
@@ -241,6 +243,7 @@ class ProfileWorkerManager {
       if (!active) continue;
       active.stopReason = reason;
       this.setStatus(profileId, { state: 'stopping' });
+      this.moduleRunner?.cancelProfile(profileId, 'WORKER_STOP_REQUESTED');
       active.controller.abort(new Error('WORKER_STOP_REQUESTED'));
       promises.push(active.promise);
     }
@@ -293,7 +296,8 @@ class ProfileWorkerManager {
         controller,
         stopReason: null,
         batchId: item.batchId,
-        promise: null
+        promise: null,
+        moduleCodes: item.moduleCodes
       };
       const promise = this.runWorker(item, holder);
       const trackedPromise = promise
@@ -347,7 +351,7 @@ class ProfileWorkerManager {
     try {
       const settings = this.settingsRepository.getWorkerSettings();
       let lastError;
-      let result;
+      let coreResult;
 
       for (let attempt = 0; attempt <= settings.maxRetries; attempt++) {
         if (holder.controller.signal.aborted) {
@@ -355,9 +359,11 @@ class ProfileWorkerManager {
         }
 
         try {
-          result = await this.httpClient.fetch(profile, WORKER_HEALTHCHECK_URL, {
+          coreResult = await this.moduleRunner.runModule(profileId, 'session_check', {
             signal: holder.controller.signal,
-            timeoutMs: settings.requestTimeoutMs
+            timeoutMs: settings.requestTimeoutMs,
+            trigger: 'worker_start',
+            force: true
           });
           break;
         } catch (error) {
@@ -365,6 +371,7 @@ class ProfileWorkerManager {
           if (holder.controller.signal.aborted || attempt >= settings.maxRetries) throw error;
           this.setStatus(profileId, {
             state: 'starting',
+            taskCode: 'session_check',
             retryCount: attempt + 1,
             error: error instanceof Error ? error.message : String(error)
           });
@@ -378,36 +385,26 @@ class ProfileWorkerManager {
         }
       }
 
-      if (!result) throw lastError || new Error('WORKER_CONNECTION_FAILED');
+      if (!coreResult) throw lastError || new Error('WORKER_CONNECTION_FAILED');
 
-      const { response, durationMs } = result;
-      const httpStatus = response.status;
+      const httpStatus = Number(coreResult.httpStatus || 0);
+      const durationMs = Number(coreResult.durationMs || 0);
       const requestCount = (this.getStatus(profileId).requestCount || 0) + 1;
-
-      if (httpStatus === 401 || httpStatus === 403) {
-        const error = new Error(`WORKER_LOGIN_REQUIRED: HTTP ${httpStatus}.`);
-        error.code = 'WORKER_LOGIN_REQUIRED';
-        throw error;
-      }
-      if (!response.ok) {
-        const error = new Error(`WORKER_HTTP_ERROR: HTTP ${httpStatus}.`);
-        error.code = 'WORKER_HTTP_ERROR';
-        throw error;
-      }
 
       this.setStatus(profileId, {
         state: 'running',
+        taskCode: 'session_check',
         requestCount,
         successCount: (this.getStatus(profileId).successCount || 0) + 1,
-        lastHttpStatus: httpStatus,
-        lastDurationMs: durationMs,
+        lastHttpStatus: httpStatus || undefined,
+        lastDurationMs: durationMs || undefined,
         lastHeartbeatAt: new Date().toISOString(),
         error: undefined
       });
 
       await this.profileRepo.updateProfile(profileId, {
         status: 'running',
-        currentActivity: 'Worker Core: Session/network sẵn sàng',
+        currentActivity: 'Module Framework: Session/network sẵn sàng',
         lastActive: new Date().toISOString(),
         nextRunTime: 'Đang chạy'
       });
@@ -416,9 +413,17 @@ class ProfileWorkerManager {
         profile,
         'success',
         'WORKER_READY',
-        `Worker Core sẵn sàng. HTTP ${httpStatus}, ${durationMs}ms.`,
-        { httpStatus, durationMs }
+        `Module Framework sẵn sàng. HTTP ${httpStatus || '--'}, ${durationMs}ms.`,
+        { httpStatus: httpStatus || undefined, durationMs }
       );
+
+      // Phase 07 runs only reviewed, ready modules. Planned game modules stay
+      // visible/configurable but cannot send requests until their handler is ported.
+      await this.moduleRunner.runEnabledForProfile(profileId, 'worker_start', {
+        signal: holder.controller.signal,
+        excludeCodes: ['session_check'],
+        requestedCodes: holder.moduleCodes
+      });
 
       await this.waitUntilStopped(profileId, holder.controller.signal);
     } catch (error) {

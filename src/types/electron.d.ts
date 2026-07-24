@@ -16,7 +16,12 @@ import type {
   LogEntry,
   ActivityConfig,
   GeneralAppSettings,
-  SystemStats
+  SystemStats,
+  ModuleCatalogItem,
+  ModuleSetting,
+  ModuleRuntimeStatus,
+  ModuleRunResult,
+  ModuleBulkApplyResult
 } from '../shared';
 
 export interface DesktopVersions {
@@ -37,6 +42,7 @@ export interface DesktopStorageInfo {
   proxyCount?: number;
   batchCount?: number;
   logCount?: number;
+  moduleSettingCount?: number;
 }
 
 export interface MiniBrowserStatus {
@@ -113,6 +119,16 @@ export interface DesktopBridgeAPI {
   onWorkerStatusChanged: (callback: (status: ProfileWorkerStatus) => void) => () => void;
   onWorkerSummaryChanged: (callback: (summary: WorkerSummary) => void) => () => void;
   onProfilesChanged: (callback: (profiles: any[]) => void) => () => void;
+
+  listModuleCatalog: () => Promise<ModuleCatalogItem[]>;
+  getProfileModuleSettings: (profileId: string) => Promise<ModuleSetting[]>;
+  saveProfileModuleSettings: (profileId: string, settings: ModuleSetting[]) => Promise<ModuleSetting[]>;
+  applyModulesToProfiles: (profileIds: string[], moduleCodes: string[], mode?: 'replace' | 'merge') => Promise<ModuleBulkApplyResult>;
+  runModuleOnce: (profileId: string, moduleCode: string) => Promise<ModuleRunResult>;
+  getModuleRuntimeStatus: (profileId: string, moduleCode: string) => Promise<ModuleRuntimeStatus>;
+  listModuleRuntimeStatuses: () => Promise<ModuleRuntimeStatus[]>;
+  onModuleStatusChanged: (callback: (status: ModuleRuntimeStatus) => void) => () => void;
+  onModuleSettingsChanged: (callback: (payload: any) => void) => () => void;
 
   listBatches: () => Promise<BatchTask[]>;
   createBatch: (input: any) => Promise<BatchTask>;

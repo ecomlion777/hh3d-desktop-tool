@@ -162,6 +162,11 @@ const WorkerSettingsRepository = require(`${base}/worker/WorkerSettingsRepositor
 const BatchRepository = require(`${base}/worker/BatchRepository.cjs`);
 const WorkerHttpClient = require(`${base}/worker/WorkerHttpClient.cjs`);
 const ProfileWorkerManager = require(`${base}/worker/ProfileWorkerManager.cjs`);
+const ModuleRegistry = require(`${base}/modules/ModuleRegistry.cjs`);
+const ModuleSettingsRepository = require(`${base}/modules/ModuleSettingsRepository.cjs`);
+const ModuleRunner = require(`${base}/modules/ModuleRunner.cjs`);
+const runSessionCheck = require(`${base}/modules/builtin/SessionCheckModule.cjs`);
+const runFrameworkDiagnostic = require(`${base}/modules/builtin/FrameworkDiagnosticModule.cjs`);
 const { getPartitionForProfile } = require(`${base}/browser/browserValidation.cjs`);
 
 async function waitFor(predicate, timeoutMs = 5000) {
@@ -190,7 +195,8 @@ async function main() {
 
   const db = new JsonDatabase();
   await db.init();
-  assert.equal(db.getData().schemaVersion, 3);
+  assert.equal(db.getData().schemaVersion, 4);
+  assert(Array.isArray(db.getData().moduleSettings));
   assert(Array.isArray(db.getData().batches));
   assert(Array.isArray(db.getData().logs));
   assert.equal(db.getData().workerSettings.maxConcurrency, 40);
@@ -219,13 +225,26 @@ async function main() {
     proxySessionManager: proxyManager,
     settingsRepository: settingsRepo
   });
+  const moduleRegistry = new ModuleRegistry();
+  moduleRegistry.registerHandler('session_check', runSessionCheck);
+  moduleRegistry.registerHandler('framework_diagnostic', runFrameworkDiagnostic);
+  const moduleSettingsRepo = new ModuleSettingsRepository(db, profileRepo, moduleRegistry);
   const events = [];
+  const moduleRunner = new ModuleRunner({
+    registry: moduleRegistry,
+    settingsRepository: moduleSettingsRepo,
+    profileRepo,
+    httpClient,
+    logRepository: logRepo,
+    broadcastCallback(channel, payload) { events.push({ channel, payload }); }
+  });
   const worker = new ProfileWorkerManager({
     profileRepo,
     httpClient,
     logRepository: logRepo,
     batchRepository: batchRepo,
     settingsRepository: settingsRepo,
+    moduleRunner,
     broadcastCallback(channel, payload) {
       events.push({ channel, payload });
     }
@@ -322,6 +341,7 @@ async function main() {
   console.log(JSON.stringify({
     status: 'PASS',
     schemaVersion: db.getData().schemaVersion,
+    moduleFramework: true,
     fetchCount,
     logs: db.getData().logs.length,
     batches: db.getData().batches.length,

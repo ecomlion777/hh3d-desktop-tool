@@ -64,7 +64,7 @@ export type WorkerRuntimeState =
 export interface ProfileWorkerStatus {
   profileId: string;
   state: WorkerRuntimeState;
-  taskCode: 'session_check';
+  taskCode: string;
   batchId?: string;
   queuedAt?: string;
   startedAt?: string;
@@ -109,6 +109,7 @@ export interface WorkerStartOptions {
   batchId?: string;
   activityType?: string;
   concurrency?: number;
+  moduleCodes?: string[];
 }
 
 /**
@@ -220,8 +221,29 @@ export interface ProxyOneToOneAssignmentResult {
 }
 
 /**
- * Standardized ModuleSetting Model
+ * Phase 07 Module Framework models.
  */
+export type ModuleImplementationState = 'ready' | 'planned' | 'disabled';
+export type ModuleTrigger = 'manual' | 'worker_start';
+export type ModuleRuntimeState = 'idle' | 'queued' | 'running' | 'success' | 'skipped' | 'error' | 'cancelled';
+
+export interface ModuleCatalogItem {
+  code: string;
+  label: string;
+  description: string;
+  category: string;
+  version: string;
+  implementationState: ModuleImplementationState;
+  required: boolean;
+  defaultEnabled: boolean;
+  triggers: ModuleTrigger[];
+  order: number;
+  sourceVersion: string;
+  defaultConfig: Record<string, any>;
+  runnable: boolean;
+  catalogVersion: number;
+}
+
 export interface ModuleSetting {
   profileId: string;
   moduleCode: string;
@@ -230,6 +252,44 @@ export interface ModuleSetting {
   lastResult?: string;
   lastRunAt?: string;
   nextRunAt?: string;
+  settingsVersion?: number;
+  updatedAt?: string;
+  manifest?: ModuleCatalogItem;
+}
+
+export interface ModuleRuntimeStatus {
+  profileId: string;
+  moduleCode: string;
+  state: ModuleRuntimeState;
+  trigger: ModuleTrigger;
+  startedAt?: string;
+  finishedAt?: string;
+  durationMs?: number;
+  summary?: string;
+  error?: string;
+  resultData?: Record<string, any>;
+  updatedAt: string;
+}
+
+export interface ModuleRunResult {
+  profileId: string;
+  moduleCode: string;
+  state: 'success';
+  outcome: string;
+  summary: string;
+  httpStatus?: number;
+  durationMs?: number;
+  data: Record<string, any>;
+  startedAt: string;
+  finishedAt: string;
+  nextRunAt?: string;
+}
+
+export interface ModuleBulkApplyResult {
+  profileIds: string[];
+  enabledModuleCodes: string[];
+  mode: 'replace' | 'merge';
+  updatedProfiles: Profile[];
 }
 
 /**

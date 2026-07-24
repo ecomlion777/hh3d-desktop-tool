@@ -18,6 +18,12 @@ const ProfileWorkerManager = require('./worker/ProfileWorkerManager.cjs');
 const SystemStatsService = require('./worker/SystemStatsService.cjs');
 const { WORKER_IPC_CHANNELS } = require('./worker/workerConstants.cjs');
 const WebsiteConfigService = require('./website/WebsiteConfigService.cjs');
+const ModuleRegistry = require('./modules/ModuleRegistry.cjs');
+const ModuleSettingsRepository = require('./modules/ModuleSettingsRepository.cjs');
+const ModuleRunner = require('./modules/ModuleRunner.cjs');
+const runSessionCheck = require('./modules/builtin/SessionCheckModule.cjs');
+const runFrameworkDiagnostic = require('./modules/builtin/FrameworkDiagnosticModule.cjs');
+const { MODULE_IPC_CHANNELS } = require('./modules/moduleConstants.cjs');
 
 const gotTheLock = app.requestSingleInstanceLock();
 
@@ -80,12 +86,26 @@ if (!gotTheLock) {
     settingsRepository: workerSettingsRepository,
     websiteConfigService
   });
+  const moduleRegistry = new ModuleRegistry();
+  moduleRegistry.registerHandler('session_check', runSessionCheck);
+  moduleRegistry.registerHandler('framework_diagnostic', runFrameworkDiagnostic);
+  const moduleSettingsRepository = new ModuleSettingsRepository(db, profileRepo, moduleRegistry);
+  const moduleRunner = new ModuleRunner({
+    registry: moduleRegistry,
+    settingsRepository: moduleSettingsRepository,
+    profileRepo,
+    httpClient: workerHttpClient,
+    logRepository: workerLogRepository,
+    websiteConfigService,
+    broadcastCallback: broadcast
+  });
   const workerManager = new ProfileWorkerManager({
     profileRepo,
     httpClient: workerHttpClient,
     logRepository: workerLogRepository,
     batchRepository,
     settingsRepository: workerSettingsRepository,
+    moduleRunner,
     broadcastCallback: broadcast
   });
   const systemStatsService = new SystemStatsService({
@@ -444,6 +464,57 @@ if (!gotTheLock) {
         ...secretInfo
       };
     });
+    // Phase 07 Module Framework IPC
+    ipcMain.handle(MODULE_IPC_CHANNELS.LIST_CATALOG, async () => {
+      ensureWorkerServicesReady();
+      return moduleRegistry.listCatalog();
+    });
+
+    ipcMain.handle(MODULE_IPC_CHANNELS.GET_PROFILE_SETTINGS, async (_event, profileId) => {
+      ensureWorkerServicesReady();
+      return moduleSettingsRepository.getProfileSettings(profileId);
+    });
+
+    ipcMain.handle(MODULE_IPC_CHANNELS.SAVE_PROFILE_SETTINGS, async (_event, profileId, settings) => {
+      ensureWorkerServicesReady();
+      const result = await moduleSettingsRepository.saveProfileSettings(profileId, settings);
+      broadcast(MODULE_IPC_CHANNELS.SETTINGS_CHANGED, { profileIds: [profileId], settings: result });
+      broadcast('profiles:changed', await profileRepo.listProfiles());
+      return result;
+    });
+
+    ipcMain.handle(MODULE_IPC_CHANNELS.APPLY_TO_PROFILES, async (_event, profileIds, moduleCodes, mode) => {
+      ensureWorkerServicesReady();
+      const result = await moduleSettingsRepository.applyToProfiles(profileIds, moduleCodes, mode || 'replace');
+      broadcast(MODULE_IPC_CHANNELS.SETTINGS_CHANGED, {
+        profileIds: result.profileIds,
+        enabledModuleCodes: result.enabledModuleCodes,
+        mode: result.mode
+      });
+      broadcast('profiles:changed', await profileRepo.listProfiles());
+      return result;
+    });
+
+    ipcMain.handle(MODULE_IPC_CHANNELS.RUN_ONCE, async (_event, profileId, moduleCode) => {
+      ensureWorkerServicesReady();
+      return moduleRunner.runModule(profileId, moduleCode, {
+        trigger: 'manual',
+        // The Activity Settings button is an explicit one-off test. It may
+        // run a reviewed ready module without permanently enabling it.
+        force: true
+      });
+    });
+
+    ipcMain.handle(MODULE_IPC_CHANNELS.GET_RUNTIME_STATUS, async (_event, profileId, moduleCode) => {
+      ensureWorkerServicesReady();
+      return moduleRunner.getRuntimeStatus(profileId, moduleCode);
+    });
+
+    ipcMain.handle(MODULE_IPC_CHANNELS.LIST_RUNTIME_STATUSES, async () => {
+      ensureWorkerServicesReady();
+      return moduleRunner.listRuntimeStatuses();
+    });
+
     // Phase 06A Worker Core IPC
     ipcMain.handle(WORKER_IPC_CHANNELS.START_PROFILES, async (_event, profileIds, options) => {
       ensureWorkerServicesReady();

@@ -119,7 +119,7 @@ export function generateInitialProfiles(proxies: ProxyItem[]): Profile[] {
       lastLoginAt: new Date(Date.now() - Math.floor(Math.random() * 86400000)).toISOString(),
       lastRunAt: new Date(Date.now() - Math.floor(Math.random() * 3600000)).toISOString(),
       nextRunAt: new Date(Date.now() + Math.floor(Math.random() * 7200000)).toISOString(),
-      enabledModules: ['daily_quest', 'dungeon', 'clear_inventory'],
+      enabledModules: [],
       createdAt: nowISO,
       updatedAt: nowISO,
 

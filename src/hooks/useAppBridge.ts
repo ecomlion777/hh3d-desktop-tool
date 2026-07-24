@@ -20,7 +20,11 @@ import {
   ProfileProxyState,
   ProxyOneToOneAssignmentResult,
   ProfileWorkerStatus,
-  WorkerSummary
+  WorkerSummary,
+  ModuleCatalogItem,
+  ModuleRuntimeStatus,
+  ModuleSetting,
+  ModuleRunResult
 } from '../types';
 import { MiniBrowserStatus } from '../types/electron';
 import { appBridge } from '../services/appBridgeService';
@@ -37,6 +41,8 @@ export function useAppBridge() {
   const [profileProxyStates, setProfileProxyStates] = useState<Record<string, ProfileProxyState>>({});
   const [workerStatuses, setWorkerStatuses] = useState<Record<string, ProfileWorkerStatus>>({});
   const [workerSummary, setWorkerSummary] = useState<WorkerSummary | null>(null);
+  const [moduleCatalog, setModuleCatalog] = useState<ModuleCatalogItem[]>([]);
+  const [moduleRuntimeStatuses, setModuleRuntimeStatuses] = useState<Record<string, ModuleRuntimeStatus>>({});
   const [systemStats, setSystemStats] = useState<SystemStats>({
     cpuUsage: 20,
     ramUsageGb: 4.2,
@@ -47,7 +53,7 @@ export function useAppBridge() {
 
   const refreshData = useCallback(async () => {
     try {
-      const [pList, pxList, gList, bList, lList, acConfig, genSettings, stats, mbStatuses, wkStatuses, wkSummary] = await Promise.all([
+      const [pList, pxList, gList, bList, lList, acConfig, genSettings, stats, mbStatuses, wkStatuses, wkSummary, moduleList, moduleStatuses] = await Promise.all([
         appBridge.listProfiles(),
         appBridge.listProxies(),
         appBridge.listGroups ? appBridge.listGroups() : Promise.resolve([]),
@@ -58,7 +64,9 @@ export function useAppBridge() {
         appBridge.getSystemStats ? appBridge.getSystemStats() : Promise.resolve({ cpuUsage: 0, ramUsageGb: 0, ramTotalGb: 16, activeConnections: 0, networkSpeedMbps: 0 }),
         appBridge.listMiniBrowserStatuses ? appBridge.listMiniBrowserStatuses() : Promise.resolve([]),
         appBridge.listWorkerStatuses ? appBridge.listWorkerStatuses() : Promise.resolve([]),
-        appBridge.getWorkerSummary ? appBridge.getWorkerSummary() : Promise.resolve(null)
+        appBridge.getWorkerSummary ? appBridge.getWorkerSummary() : Promise.resolve(null),
+        appBridge.listModuleCatalog ? appBridge.listModuleCatalog() : Promise.resolve([]),
+        appBridge.listModuleRuntimeStatuses ? appBridge.listModuleRuntimeStatuses() : Promise.resolve([])
       ]);
 
       setProfiles(pList);
@@ -86,6 +94,14 @@ export function useAppBridge() {
         setWorkerStatuses(workerMap);
       }
       setWorkerSummary(wkSummary);
+      setModuleCatalog(moduleList || []);
+      if (moduleStatuses) {
+        const moduleMap: Record<string, ModuleRuntimeStatus> = {};
+        for (const statusObj of moduleStatuses) {
+          moduleMap[`${statusObj.profileId}:${statusObj.moduleCode}`] = statusObj;
+        }
+        setModuleRuntimeStatuses(moduleMap);
+      }
     } catch (err) {
       console.error('Error fetching bridge data:', err);
     }
@@ -148,6 +164,23 @@ export function useAppBridge() {
       setWorkerSummary(summary);
     }) : undefined;
 
+    const unsubModuleStatus = appBridge.onModuleStatusChanged ? appBridge.onModuleStatusChanged(status => {
+      setModuleRuntimeStatuses(prev => ({
+        ...prev,
+        [`${status.profileId}:${status.moduleCode}`]: status
+      }));
+    }) : undefined;
+
+    const unsubModuleSettings = appBridge.onModuleSettingsChanged ? appBridge.onModuleSettingsChanged(() => {
+      Promise.all([
+        appBridge.listProfiles(),
+        appBridge.listModuleCatalog ? appBridge.listModuleCatalog() : Promise.resolve([])
+      ]).then(([nextProfiles, nextCatalog]) => {
+        setProfiles(nextProfiles);
+        setModuleCatalog(nextCatalog);
+      }).catch(error => console.error('Module settings refresh failed:', error));
+    }) : undefined;
+
     return () => {
       if (unsubProfiles) unsubProfiles();
       if (unsubBatches) unsubBatches();
@@ -159,6 +192,8 @@ export function useAppBridge() {
       if (unsubProfileProxy) unsubProfileProxy();
       if (unsubWorkerStatus) unsubWorkerStatus();
       if (unsubWorkerSummary) unsubWorkerSummary();
+      if (unsubModuleStatus) unsubModuleStatus();
+      if (unsubModuleSettings) unsubModuleSettings();
     };
   }, [refreshData]);
 
@@ -189,10 +224,32 @@ export function useAppBridge() {
   };
 
   const toggleModulesForProfiles = async (ids: string[], enabledModules: string[]) => {
+    if (appBridge.applyModulesToProfiles) {
+      await appBridge.applyModulesToProfiles(ids, enabledModules, 'replace');
+      await refreshData();
+      return;
+    }
     if (appBridge.toggleModulesForProfiles) {
       await appBridge.toggleModulesForProfiles(ids, enabledModules);
       await refreshData();
     }
+  };
+
+  const getProfileModuleSettings = async (profileId: string): Promise<ModuleSetting[]> => {
+    if (!appBridge.getProfileModuleSettings) throw new Error('API module settings không khả dụng.');
+    return appBridge.getProfileModuleSettings(profileId);
+  };
+
+  const saveProfileModuleSettings = async (profileId: string, settings: ModuleSetting[]) => {
+    if (!appBridge.saveProfileModuleSettings) throw new Error('API lưu module settings không khả dụng.');
+    const result = await appBridge.saveProfileModuleSettings(profileId, settings);
+    await refreshData();
+    return result;
+  };
+
+  const runModuleOnce = async (profileId: string, moduleCode: string): Promise<ModuleRunResult> => {
+    if (!appBridge.runModuleOnce) throw new Error('API chạy module không khả dụng.');
+    return appBridge.runModuleOnce(profileId, moduleCode);
   };
 
   const importProfiles = async (importedProfiles: Partial<Profile>[]) => {
@@ -499,6 +556,8 @@ export function useAppBridge() {
     profileProxyStates,
     workerStatuses,
     workerSummary,
+    moduleCatalog,
+    moduleRuntimeStatuses,
     systemStats,
     refreshData,
     createProfile,
@@ -507,6 +566,9 @@ export function useAppBridge() {
     assignGroupForProfiles,
     assignProxyForProfiles,
     toggleModulesForProfiles,
+    getProfileModuleSettings,
+    saveProfileModuleSettings,
+    runModuleOnce,
     importProfiles,
     startProfiles,
     stopProfiles,
