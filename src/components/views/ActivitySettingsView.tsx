@@ -90,8 +90,8 @@ export const ActivitySettingsView: React.FC<ActivitySettingsViewProps> = ({
             <Layers className="w-5 h-5" />
           </div>
           <div>
-            <h2 className="font-bold text-sm text-slate-100">Phase 08 — Module Điểm Danh</h2>
-            <p className="text-xs text-slate-400">Module Framework cùng module game thật đầu tiên: Điểm Danh</p>
+            <h2 className="font-bold text-sm text-slate-100">Module Framework — Chúc Phúc & Lì Xì</h2>
+            <p className="text-xs text-slate-400">Chúc Phúc phòng cưới và nhận lì xì Tiên Duyên bằng API Worker</p>
           </div>
         </div>
         <div className="flex items-center gap-2 text-[11px]">
@@ -108,7 +108,7 @@ export const ActivitySettingsView: React.FC<ActivitySettingsViewProps> = ({
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 border-b border-slate-800 pb-3">
           <div>
             <h3 className="font-bold text-cyan-400 text-[11px] uppercase tracking-wider">Danh Mục Module</h3>
-            <p className="text-[10px] text-slate-500 mt-1">Điểm Danh đã được chuyển sang API Worker. Các module còn ghi Planned chưa gửi request game.</p>
+            <p className="text-[10px] text-slate-500 mt-1">Các module Ready chạy bằng session/proxy riêng của profile. Chúc Phúc gồm cả nhận lì xì Tiên Duyên.</p>
           </div>
           <select
             value={selectedProfileId}
@@ -205,7 +205,7 @@ export const ActivitySettingsView: React.FC<ActivitySettingsViewProps> = ({
           <div className="space-y-2 text-[11px] text-slate-400">
             <div className="flex items-center gap-2"><Cpu className="w-3.5 h-3.5 text-cyan-400" /> Worker Core sử dụng ModuleRunner</div>
             <div className="flex items-center gap-2"><ShieldCheck className="w-3.5 h-3.5 text-emerald-400" /> Chỉ module `ready` có handler mới được chạy</div>
-            <div className="flex items-center gap-2"><Construction className="w-3.5 h-3.5 text-amber-400" /> Điểm Danh đã chạy thật; module `planned` vẫn không gọi API</div>
+            <div className="flex items-center gap-2"><Construction className="w-3.5 h-3.5 text-amber-400" /> Chúc Phúc, Điểm Danh, Tế Lễ và Phúc Lợi đã chạy thật; module `planned` không gọi API</div>
           </div>
           <button type="submit" disabled={isSaving} className="w-full py-2.5 bg-cyan-600 hover:bg-cyan-500 text-white rounded font-bold transition shadow flex items-center justify-center gap-2 disabled:opacity-50">
             {isSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}

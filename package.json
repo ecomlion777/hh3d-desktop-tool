@@ -21,7 +21,8 @@
     "test:phase07": "node tests/phase07-module-framework.test.cjs",
     "test:phase08": "node tests/phase08-daily-checkin.test.cjs",
     "test:phase09": "node tests/phase09-clan-worship.test.cjs",
-    "test:phase10": "node tests/phase10-welfare-hall.test.cjs && node tests/phase10-welfare-scheduler.test.cjs"
+    "test:phase10": "node tests/phase10-welfare-hall.test.cjs && node tests/phase10-welfare-scheduler.test.cjs",
+    "test:phase11": "node tests/phase11-blessing-red-packet.test.cjs"
   },
   "dependencies": {
     "@tailwindcss/vite": "^4.1.14",

@@ -31,6 +31,29 @@ const BUILTIN_CATALOG = Object.freeze([
     defaultConfig: {}
   },
   {
+    code: 'chuc_phuc',
+    label: 'Chúc Phúc',
+    description: 'Chúc phúc các phòng cưới Đạo Lữ/Hồng Nhan và nhận lì xì Tiên Duyên bằng session, nonce và proxy của profile.',
+    category: 'social',
+    version: '1.0.0',
+    implementationState: 'ready',
+    required: false,
+    defaultEnabled: false,
+    triggers: ['manual', 'worker_start'],
+    order: 90,
+    sourceVersion: '5.4.8',
+    defaultConfig: {
+      retrySecurityContextOnce: true,
+      receiveRedPackets: true,
+      processHongNhan: true,
+      checkIntervalMinutes: 30,
+      roomDelayMs: 500,
+      maxRoomsPerRun: 100,
+      blessingMessage: 'Chúc phúc trăm năm hạnh phúc 🎉',
+      hongNhanBlessingMessage: '🌠 Một đoạn hồng duyên, vạn phần cơ ngộ! Chúc mừng cơ duyên đẹp giữa chốn hồng trần. ✨'
+    }
+  },
+  {
     code: 'diem_danh',
     label: 'Điểm Danh',
     description: 'Thực hiện Điểm Danh qua REST API bằng đúng persistent session và proxy của profile.',
@@ -56,7 +79,7 @@ const BUILTIN_CATALOG = Object.freeze([
     required: false,
     defaultEnabled: false,
     triggers: ['manual', 'worker_start'],
-    order: 110,
+    order: 120,
     sourceVersion: '5.4.8',
     defaultConfig: {
       retrySecurityContextOnce: true
@@ -65,12 +88,12 @@ const BUILTIN_CATALOG = Object.freeze([
   {
     code: 'van_dap', label: 'Vấn Đáp', description: 'Khung module Vấn Đáp từ userscript HH3D.',
     category: 'daily', version: '0.1.0', implementationState: 'planned', required: false,
-    defaultEnabled: false, triggers: ['manual', 'worker_start'], order: 120, sourceVersion: '5.4.8', defaultConfig: {}
+    defaultEnabled: false, triggers: ['manual', 'worker_start'], order: 110, sourceVersion: '5.4.8', defaultConfig: {}
   },
   {
     code: 'thi_luyen', label: 'Thí Luyện', description: 'Khung module Thí Luyện.',
     category: 'activity', version: '0.1.0', implementationState: 'planned', required: false,
-    defaultEnabled: false, triggers: ['manual', 'worker_start'], order: 200, sourceVersion: '5.4.8', defaultConfig: {}
+    defaultEnabled: false, triggers: ['manual', 'worker_start'], order: 140, sourceVersion: '5.4.8', defaultConfig: {}
   },
   {
     code: 'phuc_loi',
@@ -82,7 +105,7 @@ const BUILTIN_CATALOG = Object.freeze([
     required: false,
     defaultEnabled: false,
     triggers: ['manual', 'worker_start'],
-    order: 210,
+    order: 150,
     sourceVersion: '5.4.8',
     defaultConfig: {
       retrySecurityContextOnce: true,
@@ -92,32 +115,32 @@ const BUILTIN_CATALOG = Object.freeze([
   {
     code: 'hoang_vuc', label: 'Hoang Vực', description: 'Khung module Hoang Vực.',
     category: 'combat', version: '0.1.0', implementationState: 'planned', required: false,
-    defaultEnabled: false, triggers: ['manual', 'worker_start'], order: 300, sourceVersion: '5.4.8', defaultConfig: {}
+    defaultEnabled: false, triggers: ['manual', 'worker_start'], order: 130, sourceVersion: '5.4.8', defaultConfig: {}
   },
   {
     code: 'bi_canh', label: 'Bí Cảnh', description: 'Khung module Bí Cảnh.',
     category: 'combat', version: '0.1.0', implementationState: 'planned', required: false,
-    defaultEnabled: false, triggers: ['manual', 'worker_start'], order: 310, sourceVersion: '5.4.8', defaultConfig: {}
+    defaultEnabled: false, triggers: ['manual', 'worker_start'], order: 160, sourceVersion: '5.4.8', defaultConfig: {}
   },
   {
     code: 'khoang_mach', label: 'Khoáng Mạch', description: 'Khung module Khoáng Mạch và cấu hình mỏ.',
     category: 'resource', version: '0.1.0', implementationState: 'planned', required: false,
-    defaultEnabled: false, triggers: ['manual', 'worker_start'], order: 400, sourceVersion: '5.4.8', defaultConfig: {}
+    defaultEnabled: false, triggers: ['manual', 'worker_start'], order: 170, sourceVersion: '5.4.8', defaultConfig: {}
   },
   {
-    code: 'tien_duyen', label: 'Tiên Duyên', description: 'Khung module Tiên Duyên.',
+    code: 'tien_duyen', label: 'Tiên Duyên', description: 'Khung module Cầu Nguyện và Tặng hoa bạn bè; không gồm Chúc Phúc hoặc nhận lì xì.',
     category: 'social', version: '0.1.0', implementationState: 'planned', required: false,
-    defaultEnabled: false, triggers: ['manual', 'worker_start'], order: 500, sourceVersion: '5.4.8', defaultConfig: {}
+    defaultEnabled: false, triggers: ['manual', 'worker_start'], order: 180, sourceVersion: '5.4.8', defaultConfig: {}
   },
   {
     code: 'luyen_dan', label: 'Luyện Đan', description: 'Khung module Luyện Đan.',
     category: 'resource', version: '0.1.0', implementationState: 'planned', required: false,
-    defaultEnabled: false, triggers: ['manual', 'worker_start'], order: 510, sourceVersion: '5.4.8', defaultConfig: {}
+    defaultEnabled: false, triggers: ['manual', 'worker_start'], order: 200, sourceVersion: '5.4.8', defaultConfig: {}
   },
   {
     code: 'me_cung', label: 'Mê Cung', description: 'Khung tích hợp Auto Mê Cung; chưa chuyển socket/game bridge trong Phase 07.',
     category: 'combat', version: '0.1.0', implementationState: 'planned', required: false,
-    defaultEnabled: false, triggers: ['manual', 'worker_start'], order: 600, sourceVersion: '5.4.8', defaultConfig: {}
+    defaultEnabled: false, triggers: ['manual', 'worker_start'], order: 190, sourceVersion: '5.4.8', defaultConfig: {}
   },
   {
     code: 'do_thach', label: 'Đổ Thạch', description: 'Khung module Đổ Thạch.',
