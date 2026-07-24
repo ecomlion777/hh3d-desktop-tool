@@ -73,9 +73,21 @@ const BUILTIN_CATALOG = Object.freeze([
     defaultEnabled: false, triggers: ['manual', 'worker_start'], order: 200, sourceVersion: '5.4.8', defaultConfig: {}
   },
   {
-    code: 'phuc_loi', label: 'Phúc Lợi', description: 'Khung module Phúc Lợi.',
-    category: 'activity', version: '0.1.0', implementationState: 'planned', required: false,
-    defaultEnabled: false, triggers: ['manual', 'worker_start'], order: 210, sourceVersion: '5.4.8', defaultConfig: {}
+    code: 'phuc_loi',
+    label: 'Phúc Lợi',
+    description: 'Kiểm tra tiến độ, mở rương Phúc Lợi khi đến giờ và nhận bonus tháng trong hai ngày cuối tháng.',
+    category: 'activity',
+    version: '1.0.0',
+    implementationState: 'ready',
+    required: false,
+    defaultEnabled: false,
+    triggers: ['manual', 'worker_start'],
+    order: 210,
+    sourceVersion: '5.4.8',
+    defaultConfig: {
+      retrySecurityContextOnce: true,
+      claimMonthlyBonus: true
+    }
   },
   {
     code: 'hoang_vuc', label: 'Hoang Vực', description: 'Khung module Hoang Vực.',

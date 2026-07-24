@@ -109,7 +109,50 @@ const StatusBadge = React.memo<{ status: ProfileStatus }>(({ status }) => {
       return null;
   }
 });
+
 StatusBadge.displayName = 'StatusBadge';
+
+function formatLiveCountdown(nextRunAt: string | undefined, nowMs: number): string | null {
+  if (!nextRunAt) return null;
+  const targetMs = Date.parse(nextRunAt);
+  if (!Number.isFinite(targetMs)) return null;
+
+  const totalSeconds = Math.max(0, Math.ceil((targetMs - nowMs) / 1000));
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+
+  if (hours > 0) {
+    return [hours, minutes, seconds]
+      .map(value => String(value).padStart(2, '0'))
+      .join(':');
+  }
+
+  return [minutes, seconds]
+    .map(value => String(value).padStart(2, '0'))
+    .join(':');
+}
+
+function formatLiveActivity(
+  activity: string | undefined,
+  countdown: string | null
+): string {
+  const current = activity || 'Đã Dừng';
+  if (!countdown) return current;
+
+  if (/chờ\s+\d{1,3}:\d{2}(?::\d{2})?/i.test(current)) {
+    return current.replace(
+      /chờ\s+\d{1,3}:\d{2}(?::\d{2})?/i,
+      `chờ ${countdown}`
+    );
+  }
+
+  if (/Phúc Lợi/i.test(current)) {
+    return `${current.replace(/[.\s]+$/, '')}, chờ ${countdown}.`;
+  }
+
+  return current;
+}
 
 // Memoized Table Row Component
 interface ProfileTableRowProps {
@@ -126,6 +169,7 @@ interface ProfileTableRowProps {
   onOpenMiniBrowserDetails?: (profile: Profile) => void;
   onEditProfile: (profile: Profile) => void;
   onDeleteSingleProfile: (profile: Profile) => void;
+  nowMs: number;
 }
 
 const ProfileTableRow = React.memo<ProfileTableRowProps>(({
@@ -141,12 +185,18 @@ const ProfileTableRow = React.memo<ProfileTableRowProps>(({
   onMiniBrowserError,
   onOpenMiniBrowserDetails,
   onEditProfile,
-  onDeleteSingleProfile
+  onDeleteSingleProfile,
+  nowMs
 }) => {
   const mbState = miniBrowserStatus?.state || 'closed';
   const isOpenOrLoading = mbState === 'opening' || mbState === 'loading' || mbState === 'open';
   const hasProxyError = profileProxyState?.state === 'error';
   const effectiveProfileStatus: ProfileStatus = hasProxyError ? 'proxy_error' : p.status;
+  const liveCountdown = p.status === 'running'
+    ? formatLiveCountdown(p.nextRunAt, nowMs)
+    : null;
+  const liveActivity = formatLiveActivity(p.currentActivity, liveCountdown);
+  const liveNextRun = liveCountdown || p.nextRunTime || '--:--';
 
   let tooltipText = 'Mở Mini Browser';
   if (mbState === 'opening' || mbState === 'loading') {
@@ -236,12 +286,19 @@ const ProfileTableRow = React.memo<ProfileTableRowProps>(({
       </td>
 
       {/* Current Activity */}
-      <td className="p-3 text-slate-300 max-w-[180px] truncate" title={p.currentActivity}>
-        {p.currentActivity}
+      <td className="p-3 text-slate-300 max-w-[180px] truncate" title={liveActivity}>
+        {liveActivity}
       </td>
 
       {/* Next Run Time */}
-      <td className="p-3 font-mono text-slate-400 text-[11px]">{p.nextRunTime}</td>
+      <td
+        className={`p-3 font-mono text-[11px] ${
+          liveCountdown ? 'text-amber-300' : 'text-slate-400'
+        }`}
+        title={p.nextRunAt || p.nextRunTime}
+      >
+        {liveNextRun}
+      </td>
 
       {/* Action Buttons */}
       <td className="p-3 text-center">
@@ -350,6 +407,12 @@ export const ProfileManagerView: React.FC<ProfileManagerViewProps> = ({
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [pageSize, setPageSize] = useState<number>(25);
   const [currentPage, setCurrentPage] = useState<number>(1);
+  const [nowMs, setNowMs] = useState<number>(() => Date.now());
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setNowMs(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, []);
 
   // Notify parent component when selection changes
   useEffect(() => {
@@ -708,6 +771,7 @@ export const ProfileManagerView: React.FC<ProfileManagerViewProps> = ({
                   onOpenMiniBrowserDetails={onOpenMiniBrowserDetails}
                   onEditProfile={setEditingProfile}
                   onDeleteSingleProfile={triggerSingleDelete}
+                  nowMs={nowMs}
                 />
               ))
             )}

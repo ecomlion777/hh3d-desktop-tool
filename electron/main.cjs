@@ -25,6 +25,7 @@ const runSessionCheck = require('./modules/builtin/SessionCheckModule.cjs');
 const runFrameworkDiagnostic = require('./modules/builtin/FrameworkDiagnosticModule.cjs');
 const runDailyCheckin = require('./modules/builtin/DailyCheckinModule.cjs');
 const runClanWorship = require('./modules/builtin/ClanWorshipModule.cjs');
+const runWelfareHall = require('./modules/builtin/WelfareHallModule.cjs');
 const { MODULE_IPC_CHANNELS } = require('./modules/moduleConstants.cjs');
 
 const gotTheLock = app.requestSingleInstanceLock();
@@ -93,6 +94,7 @@ if (!gotTheLock) {
   moduleRegistry.registerHandler('framework_diagnostic', runFrameworkDiagnostic);
   moduleRegistry.registerHandler('diem_danh', runDailyCheckin);
   moduleRegistry.registerHandler('te_le', runClanWorship);
+  moduleRegistry.registerHandler('phuc_loi', runWelfareHall);
   const moduleSettingsRepository = new ModuleSettingsRepository(db, profileRepo, moduleRegistry);
   const moduleRunner = new ModuleRunner({
     registry: moduleRegistry,
@@ -110,6 +112,7 @@ if (!gotTheLock) {
     batchRepository,
     settingsRepository: workerSettingsRepository,
     moduleRunner,
+    moduleSettingsRepository,
     broadcastCallback: broadcast
   });
   const systemStatsService = new SystemStatsService({

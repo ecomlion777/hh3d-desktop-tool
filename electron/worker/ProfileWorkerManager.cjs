@@ -23,6 +23,8 @@ class ProfileWorkerManager {
     this.batchRepository = options.batchRepository;
     this.settingsRepository = options.settingsRepository;
     this.moduleRunner = options.moduleRunner;
+    this.moduleSettingsRepository = options.moduleSettingsRepository
+      || options.moduleRunner?.settingsRepository;
     this.broadcastCallback = options.broadcastCallback || (() => {});
 
     this.queue = [];
@@ -40,6 +42,7 @@ class ProfileWorkerManager {
         await this.profileRepo.updateProfile(profile.id, {
           status: 'stopped',
           currentActivity: 'Worker Core đã dừng khi ứng dụng khởi động lại',
+          nextRunAt: '',
           nextRunTime: '--:--'
         });
       }
@@ -149,6 +152,181 @@ class ProfileWorkerManager {
     return log;
   }
 
+
+  getRequestedModuleSet(moduleCodes) {
+    if (!Array.isArray(moduleCodes) || moduleCodes.length === 0) return null;
+    return new Set(moduleCodes.map(code => String(code || '').trim()).filter(Boolean));
+  }
+
+  async listScheduledModules(profileId, moduleCodes) {
+    if (!this.moduleSettingsRepository) return [];
+    const requested = this.getRequestedModuleSet(moduleCodes);
+    const enabled = await this.moduleSettingsRepository.listEnabledRunnable(
+      profileId,
+      'worker_start'
+    );
+
+    return enabled
+      .filter(item => item.moduleCode !== 'session_check')
+      .filter(item => !requested || requested.has(item.moduleCode))
+      .map(item => {
+        const timestamp = Date.parse(String(item.nextRunAt || ''));
+        return {
+          ...item,
+          timestamp
+        };
+      })
+      .filter(item => Number.isFinite(item.timestamp))
+      .sort((a, b) => {
+        const timeDiff = a.timestamp - b.timestamp;
+        if (timeDiff !== 0) return timeDiff;
+        return Number(a?.manifest?.order || 0) - Number(b?.manifest?.order || 0);
+      });
+  }
+
+  async syncProfileSchedule(profileId, options = {}) {
+    const scheduled = await this.listScheduledModules(
+      profileId,
+      options.moduleCodes
+    );
+    const next = scheduled[0];
+    const profile = await this.profileRepo.getProfileById(profileId);
+    if (!profile) return { scheduled, next: undefined };
+
+    const nextRunAt = next?.nextRunAt || '';
+    const nextRunTime = next ? 'Theo lịch module' : 'Đang chạy';
+    const currentActivity = options.currentActivity
+      || profile.currentActivity
+      || 'Module Framework: Đang chạy';
+
+    const changed = profile.nextRunAt !== nextRunAt
+      || profile.nextRunTime !== nextRunTime
+      || profile.currentActivity !== currentActivity;
+
+    if (changed) {
+      await this.profileRepo.updateProfile(profileId, {
+        status: 'running',
+        currentActivity,
+        nextRunAt,
+        nextRunTime,
+        lastActive: new Date().toISOString()
+      });
+      await this.broadcastProfilesChanged();
+    }
+
+    return { scheduled, next };
+  }
+
+  waitForSignal(signal, timeoutMs) {
+    return new Promise((resolve, reject) => {
+      if (signal.aborted) {
+        reject(signal.reason || new Error('WORKER_STOP_REQUESTED'));
+        return;
+      }
+
+      const onAbort = () => {
+        clearTimeout(timer);
+        reject(signal.reason || new Error('WORKER_STOP_REQUESTED'));
+      };
+
+      const timer = setTimeout(() => {
+        signal.removeEventListener('abort', onAbort);
+        resolve();
+      }, Math.max(25, timeoutMs));
+
+      signal.addEventListener('abort', onAbort, { once: true });
+    });
+  }
+
+  async runScheduledModuleLoop(profileId, holder, settings) {
+    const heartbeatIntervalMs = Math.max(
+      250,
+      Number(settings.heartbeatIntervalMs || 5000)
+    );
+
+    while (!holder.controller.signal.aborted) {
+      const { next } = await this.syncProfileSchedule(profileId, {
+        moduleCodes: holder.moduleCodes
+      });
+
+      if (!next) {
+        const current = this.getStatus(profileId);
+        this.setStatus(profileId, {
+          state: 'running',
+          taskCode: current.taskCode || 'session_check',
+          lastHeartbeatAt: new Date().toISOString(),
+          error: current.error
+        });
+        await this.waitForSignal(holder.controller.signal, heartbeatIntervalMs);
+        continue;
+      }
+
+      const remainingMs = next.timestamp - Date.now();
+      if (remainingMs > 250) {
+        const current = this.getStatus(profileId);
+        this.setStatus(profileId, {
+          state: 'running',
+          taskCode: next.moduleCode,
+          lastHeartbeatAt: new Date().toISOString(),
+          error: current.error
+        });
+        await this.waitForSignal(
+          holder.controller.signal,
+          Math.min(remainingMs, heartbeatIntervalMs)
+        );
+        continue;
+      }
+
+      const label = next.manifest?.label || next.moduleCode;
+      this.setStatus(profileId, {
+        state: 'running',
+        taskCode: next.moduleCode,
+        lastHeartbeatAt: new Date().toISOString(),
+        error: undefined
+      });
+      await this.profileRepo.updateProfile(profileId, {
+        status: 'running',
+        currentActivity: `${label}: Đang thực thi theo lịch`,
+        nextRunAt: '',
+        nextRunTime: 'Đang thực thi',
+        lastActive: new Date().toISOString()
+      });
+      await this.broadcastProfilesChanged();
+
+      const result = await this.moduleRunner.runModule(
+        profileId,
+        next.moduleCode,
+        {
+          signal: holder.controller.signal,
+          timeoutMs: settings.requestTimeoutMs,
+          trigger: 'worker_start',
+          force: true
+        }
+      );
+
+      const currentStatus = this.getStatus(profileId);
+      this.setStatus(profileId, {
+        state: 'running',
+        taskCode: next.moduleCode,
+        successCount: (currentStatus.successCount || 0) + 1,
+        lastHttpStatus: result.httpStatus,
+        lastDurationMs: result.durationMs,
+        lastHeartbeatAt: new Date().toISOString(),
+        error: undefined
+      });
+
+      await this.syncProfileSchedule(profileId, {
+        moduleCodes: holder.moduleCodes,
+        currentActivity: result.summary || `${label}: Hoàn tất`
+      });
+
+      // Prevent a malformed server countdown from causing a tight request loop.
+      await this.waitForSignal(holder.controller.signal, 1000);
+    }
+
+    throw holder.controller.signal.reason || new Error('WORKER_STOP_REQUESTED');
+  }
+
   async startProfiles(profileIds, options = {}) {
     const ids = validateProfileIds(profileIds);
     const allProfiles = await this.profileRepo.listProfiles();
@@ -185,6 +363,7 @@ class ProfileWorkerManager {
       await this.profileRepo.updateProfile(profileId, {
         status: 'waiting',
         currentActivity: 'Worker Core: Đang chờ hàng đợi',
+        nextRunAt: '',
         nextRunTime: 'Đang chờ',
         updatedAt: queuedAt
       });
@@ -231,6 +410,7 @@ class ProfileWorkerManager {
         await this.profileRepo.updateProfile(profileId, {
           status: 'stopped',
           currentActivity: 'Đã Dừng',
+          nextRunAt: '',
           nextRunTime: '--:--'
         });
         await this.appendLog(profile, 'info', 'WORKER_STOPPED', 'Đã hủy profile khỏi hàng đợi Worker Core.');
@@ -338,6 +518,7 @@ class ProfileWorkerManager {
       currentActivity: 'Worker Core: Đang kiểm tra session/network',
       lastRunAt: startedAt,
       lastActive: startedAt,
+      nextRunAt: '',
       nextRunTime: 'Đang chạy'
     });
     await this.broadcastProfilesChanged();
@@ -425,18 +606,16 @@ class ProfileWorkerManager {
         requestedCodes: holder.moduleCodes
       });
 
-      if (moduleResults.length > 0) {
-        const lastResult = moduleResults[moduleResults.length - 1];
-        await this.profileRepo.updateProfile(profileId, {
-          status: 'running',
-          currentActivity: lastResult.summary || 'Module Framework: Hoàn tất module đã bật',
-          lastActive: new Date().toISOString(),
-          nextRunTime: 'Đang chạy'
-        });
-        await this.broadcastProfilesChanged();
-      }
+      const lastResult = moduleResults[moduleResults.length - 1];
+      await this.syncProfileSchedule(profileId, {
+        moduleCodes: holder.moduleCodes,
+        currentActivity: lastResult?.summary || 'Module Framework: Session/network sẵn sàng'
+      });
 
-      await this.waitUntilStopped(profileId, holder.controller.signal);
+      // Modules that return nextRunAt (currently Phúc Lợi) remain scheduled
+      // while the Worker is active. When the countdown reaches zero, the
+      // module is executed again automatically without opening Mini Browser.
+      await this.runScheduledModuleLoop(profileId, holder, settings);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       const isStop = holder.controller.signal.aborted || message.includes('WORKER_STOP_REQUESTED');
@@ -464,7 +643,12 @@ class ProfileWorkerManager {
         finalProfileStatus = 'proxy_error';
         finalActivity = 'Worker Core: Lỗi Proxy';
         finalError = message;
-      } else if (message.includes('DIEM_DANH_') || message.includes('MODULE_')) {
+      } else if (
+        message.includes('DIEM_DANH_')
+        || message.includes('TE_LE_')
+        || message.includes('PHUC_LOI_')
+        || message.includes('MODULE_')
+      ) {
         finalState = 'error';
         finalProfileStatus = 'stopped';
         finalActivity = 'Module Framework: Lỗi module';
@@ -499,6 +683,7 @@ class ProfileWorkerManager {
       await this.profileRepo.updateProfile(profileId, {
         status: finalProfileStatus,
         currentActivity: finalActivity,
+        nextRunAt: '',
         nextRunTime: '--:--',
         lastActive: stoppedAt
       });
