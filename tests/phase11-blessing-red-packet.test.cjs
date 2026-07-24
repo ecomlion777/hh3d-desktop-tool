@@ -201,6 +201,36 @@ async function testAlreadyCompletedIsBenign() {
   assert.equal(result.data.redPacketFailures, 0);
 }
 
+async function testAlreadySentBlessingPhraseIsBenign() {
+  const result = await runBlessingRedPacket(createContext(async (_profile, url, init) => {
+    if ((init.method || 'GET') === 'GET') {
+      return { response: makeResponse(200, contextPage(), url), durationMs: 2 };
+    }
+    const body = parseJsonBody(init);
+    if (body.action === 'show_all_wedding') {
+      return {
+        response: makeResponse(200, {
+          success: true,
+          data: [{ wedding_room_id: 211, has_blessed: false, has_li_xi: false }]
+        }, url),
+        durationMs: 3
+      };
+    }
+    return {
+      response: makeResponse(400, {
+        success: false,
+        message: 'Đạo hữu đã gửi lời chúc cho phòng này rồi!'
+      }, url),
+      durationMs: 3
+    };
+  }));
+
+  assert.equal(result.outcome, 'already_done');
+  assert.equal(result.data.blessingsAlreadyDone, 1);
+  assert.equal(result.data.blessingFailures, 0);
+  assert.match(result.summary, /hoàn tất trước đó/);
+}
+
 async function testNoRooms() {
   const result = await runBlessingRedPacket(createContext(async (_profile, url, init) => {
     if ((init.method || 'GET') === 'GET') {
@@ -353,6 +383,7 @@ async function main() {
   await testDaoLuBlessingAndRedPacket();
   await testHongNhanUsesDedicatedEndpoint();
   await testAlreadyCompletedIsBenign();
+  await testAlreadySentBlessingPhraseIsBenign();
   await testNoRooms();
   await testContextRetry();
   await testLoginRequired();

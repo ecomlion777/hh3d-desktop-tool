@@ -24,6 +24,7 @@ const ModuleRunner = require('./modules/ModuleRunner.cjs');
 const runSessionCheck = require('./modules/builtin/SessionCheckModule.cjs');
 const runFrameworkDiagnostic = require('./modules/builtin/FrameworkDiagnosticModule.cjs');
 const runDailyCheckin = require('./modules/builtin/DailyCheckinModule.cjs');
+const runQuiz = require('./modules/builtin/QuizModule.cjs');
 const runClanWorship = require('./modules/builtin/ClanWorshipModule.cjs');
 const runWelfareHall = require('./modules/builtin/WelfareHallModule.cjs');
 const runBlessingRedPacket = require('./modules/builtin/BlessingRedPacketModule.cjs');
@@ -95,6 +96,7 @@ if (!gotTheLock) {
   moduleRegistry.registerHandler('framework_diagnostic', runFrameworkDiagnostic);
   moduleRegistry.registerHandler('chuc_phuc', runBlessingRedPacket);
   moduleRegistry.registerHandler('diem_danh', runDailyCheckin);
+  moduleRegistry.registerHandler('van_dap', runQuiz);
   moduleRegistry.registerHandler('te_le', runClanWorship);
   moduleRegistry.registerHandler('phuc_loi', runWelfareHall);
   const moduleSettingsRepository = new ModuleSettingsRepository(db, profileRepo, moduleRegistry);

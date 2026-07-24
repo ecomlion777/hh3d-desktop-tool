@@ -31,7 +31,9 @@ const WORKER_HEALTHCHECK_URL = 'https://api.ipify.org?format=json';
 const ALLOWED_WORKER_HOSTS = Object.freeze([
   'hoathinh3d.co',
   'hoathinh3d.st',
-  'api.ipify.org'
+  'api.ipify.org',
+  'gist.githubusercontent.com',
+  'raw.githubusercontent.com'
 ]);
 
 const DEFAULT_ACTIVITY_CONFIG = Object.freeze({

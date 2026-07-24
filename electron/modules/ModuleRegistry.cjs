@@ -86,9 +86,27 @@ const BUILTIN_CATALOG = Object.freeze([
     }
   },
   {
-    code: 'van_dap', label: 'Vấn Đáp', description: 'Khung module Vấn Đáp từ userscript HH3D.',
-    category: 'daily', version: '0.1.0', implementationState: 'planned', required: false,
-    defaultEnabled: false, triggers: ['manual', 'worker_start'], order: 110, sourceVersion: '5.4.8', defaultConfig: {}
+    code: 'van_dap',
+    label: 'Vấn Đáp',
+    description: 'Tải ngân hàng QA, đối chiếu câu hỏi/đáp án bằng Smart Match và trả lời an toàn qua persistent session của profile.',
+    category: 'daily',
+    version: '1.0.0',
+    implementationState: 'ready',
+    required: false,
+    defaultEnabled: false,
+    triggers: ['manual', 'worker_start'],
+    order: 110,
+    sourceVersion: '2.5.8.1',
+    timeoutMs: 90000,
+    defaultConfig: {
+      minSubmitGapMs: 900,
+      afterSubmitDelayMs: 1000,
+      maxAttempts: 20,
+      maxTokenRefreshes: 2,
+      requiredCorrect: 5,
+      questionCacheTtlMinutes: 60,
+      skipLowConfidence: true
+    }
   },
   {
     code: 'thi_luyen', label: 'Thí Luyện', description: 'Khung module Thí Luyện.',

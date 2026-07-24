@@ -4,6 +4,8 @@
  */
 
 const ACTION_KEY_MAP = Object.freeze({
+  load_quiz_data: 'vdLoad',
+  save_quiz_result: 'vdSave',
   get_next_time_pl: 'plTimer',
   open_chest_pl: 'plOpen',
   claim_bonus_reward: 'plClaim'

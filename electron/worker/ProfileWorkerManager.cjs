@@ -14,6 +14,7 @@ const {
   validateProfileId,
   validateProfileIds
 } = require('./workerValidation.cjs');
+const { isFatalWorkerModuleError } = require('../modules/moduleErrorPolicy.cjs');
 
 class ProfileWorkerManager {
   constructor(options) {
@@ -293,16 +294,57 @@ class ProfileWorkerManager {
       });
       await this.broadcastProfilesChanged();
 
-      const result = await this.moduleRunner.runModule(
-        profileId,
-        next.moduleCode,
-        {
-          signal: holder.controller.signal,
-          timeoutMs: settings.requestTimeoutMs,
-          trigger: 'worker_start',
-          force: true
+      let result;
+      try {
+        result = await this.moduleRunner.runModule(
+          profileId,
+          next.moduleCode,
+          {
+            signal: holder.controller.signal,
+            timeoutMs: settings.requestTimeoutMs,
+            trigger: 'worker_start',
+            force: true
+          }
+        );
+      } catch (error) {
+        if (isFatalWorkerModuleError(error)) throw error;
+
+        const message = error instanceof Error ? error.message : String(error);
+        const retryDelayMs = Math.max(
+          60_000,
+          Number(settings.moduleErrorRetryDelayMs || 5 * 60_000)
+        );
+        const retryAt = new Date(Date.now() + retryDelayMs).toISOString();
+
+        if (this.moduleSettingsRepository) {
+          await this.moduleSettingsRepository.recordResult(profileId, next.moduleCode, {
+            outcome: 'error',
+            finishedAt: new Date().toISOString(),
+            nextRunAt: retryAt
+          });
         }
-      );
+
+        const currentStatus = this.getStatus(profileId);
+        this.setStatus(profileId, {
+          state: 'running',
+          taskCode: next.moduleCode,
+          failureCount: (currentStatus.failureCount || 0) + 1,
+          lastHeartbeatAt: new Date().toISOString(),
+          error: undefined
+        });
+        await this.appendLog(
+          profile,
+          'warn',
+          'WORKER_SCHEDULED_MODULE_FAILED_CONTINUED',
+          `${label} lỗi; Worker vẫn chạy và sẽ thử lại sau ${Math.ceil(retryDelayMs / 60_000)} phút. ${message}`
+        );
+        await this.syncProfileSchedule(profileId, {
+          moduleCodes: holder.moduleCodes,
+          currentActivity: `${label}: lỗi tạm thời, Worker tiếp tục`
+        });
+        await this.waitForSignal(holder.controller.signal, 1000);
+        continue;
+      }
 
       const currentStatus = this.getStatus(profileId);
       this.setStatus(profileId, {
@@ -603,10 +645,28 @@ class ProfileWorkerManager {
       const moduleResults = await this.moduleRunner.runEnabledForProfile(profileId, 'worker_start', {
         signal: holder.controller.signal,
         excludeCodes: ['session_check'],
-        requestedCodes: holder.moduleCodes
+        requestedCodes: holder.moduleCodes,
+        continueOnError: true
       });
 
-      const lastResult = moduleResults[moduleResults.length - 1];
+      const failedModuleResults = moduleResults.filter(result => result?.state === 'error');
+      if (failedModuleResults.length > 0) {
+        const currentStatus = this.getStatus(profileId);
+        this.setStatus(profileId, {
+          state: 'running',
+          failureCount: (currentStatus.failureCount || 0) + failedModuleResults.length,
+          lastHeartbeatAt: new Date().toISOString(),
+          error: undefined
+        });
+        await this.appendLog(
+          profile,
+          'warn',
+          'WORKER_MODULE_ERRORS_CONTINUED',
+          `${failedModuleResults.length} module gặp lỗi nhưng Worker đã tiếp tục các tác vụ còn lại: ${failedModuleResults.map(result => result.moduleCode).join(', ')}.`
+        );
+      }
+
+      const lastResult = [...moduleResults].reverse().find(result => result?.state === 'success');
       await this.syncProfileSchedule(profileId, {
         moduleCodes: holder.moduleCodes,
         currentActivity: lastResult?.summary || 'Module Framework: Session/network sẵn sàng'
@@ -646,6 +706,7 @@ class ProfileWorkerManager {
       } else if (
         message.includes('DIEM_DANH_')
         || message.includes('TE_LE_')
+        || message.includes('VAN_DAP_')
         || message.includes('PHUC_LOI_')
         || message.includes('MODULE_')
       ) {

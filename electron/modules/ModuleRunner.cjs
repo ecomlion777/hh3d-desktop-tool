@@ -3,6 +3,7 @@ const {
   DEFAULT_MODULE_TIMEOUT_MS
 } = require('./moduleConstants.cjs');
 const { validateModuleCode } = require('./moduleValidation.cjs');
+const { isFatalWorkerModuleError } = require('./moduleErrorPolicy.cjs');
 
 function createModuleError(code, message) {
   const error = new Error(`${code}: ${message}`);
@@ -123,7 +124,7 @@ class ModuleRunner {
       else externalSignal.addEventListener('abort', onExternalAbort, { once: true });
     }
 
-    const timeoutMs = Math.min(Math.max(Number(options.timeoutMs || DEFAULT_MODULE_TIMEOUT_MS), 1000), 120000);
+    const timeoutMs = Math.min(Math.max(Number(options.timeoutMs || manifest.timeoutMs || DEFAULT_MODULE_TIMEOUT_MS), 1000), 120000);
     let timeoutId;
     const startedAt = new Date().toISOString();
     const startedMs = Date.now();
@@ -144,6 +145,14 @@ class ModuleRunner {
       httpClient: this.httpClient,
       websiteBaseUrl: this.websiteConfigService?.getTargetUrl?.() || 'https://hoathinh3d.co/',
       buildWebsiteUrl: relativePath => this.httpClient.buildWebsiteUrl(relativePath),
+      appendLog: (level, action, message, extra = {}) => this.appendLog(
+        profile,
+        code,
+        level,
+        action,
+        message,
+        extra
+      ),
       now: () => new Date().toISOString()
     }));
 
@@ -229,11 +238,33 @@ class ModuleRunner {
       if (excluded.has(item.moduleCode)) continue;
       if (requested && !requested.has(item.moduleCode)) continue;
       if (options.signal?.aborted) throw options.signal.reason || new Error('MODULE_CANCELLED');
-      results.push(await this.runModule(profileId, item.moduleCode, {
-        ...options,
-        trigger,
-        force: true
-      }));
+
+      try {
+        results.push(await this.runModule(profileId, item.moduleCode, {
+          ...options,
+          trigger,
+          force: true
+        }));
+      } catch (error) {
+        if (!options.continueOnError || isFatalWorkerModuleError(error)) {
+          throw error;
+        }
+
+        const manifest = item.manifest || this.registry.getManifest(item.moduleCode);
+        const message = error instanceof Error ? error.message : String(error);
+        results.push({
+          profileId,
+          moduleCode: item.moduleCode,
+          state: 'error',
+          outcome: 'error',
+          summary: `${manifest?.label || item.moduleCode}: lỗi nhưng Worker tiếp tục module kế tiếp.`,
+          error: message,
+          startedAt: undefined,
+          finishedAt: new Date().toISOString(),
+          nextRunAt: undefined,
+          data: {}
+        });
+      }
     }
     return results;
   }

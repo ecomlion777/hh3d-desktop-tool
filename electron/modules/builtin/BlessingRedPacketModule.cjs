@@ -14,7 +14,7 @@ const DEFAULT_INTERVAL_MINUTES = 30;
 
 const LOGIN_REQUIRED_PATTERN = /(?:đăng\s*nhập|dang\s*nhap|login|required authentication|unauthorized|chưa đăng nhập|chua dang nhap)/i;
 const CONTEXT_REJECTED_PATTERN = /(?:nonce|security(?:[_ -]?token)?|rest[_ -]?nonce).*(?:invalid|expired|không hợp lệ|khong hop le|hết hạn|het han|sai|missing|thiếu|thieu)|(?:invalid|expired|không hợp lệ|khong hop le|missing).*(?:nonce|security(?:[_ -]?token)?)/i;
-const ALREADY_BLESSED_PATTERN = /(?:đã|da).*?(?:chúc\s*phúc|chuc\s*phuc)|(?:chúc\s*phúc|chuc\s*phuc).*?(?:rồi|roi)|already.*?bless/i;
+const ALREADY_BLESSED_PATTERN = /(?:đã|da).*?(?:(?:chúc\s*phúc|chuc\s*phuc)|(?:gửi|gui).*?(?:lời\s*chúc|loi\s*chuc))|(?:(?:chúc\s*phúc|chuc\s*phuc)|(?:lời\s*chúc|loi\s*chuc)).*?(?:rồi|roi)|already.*?bless/i;
 const ALREADY_RECEIVED_PATTERN = /(?:đã|da).*?(?:nhận|nhan).*?(?:lì\s*xì|li\s*xi)|(?:lì\s*xì|li\s*xi).*?(?:đã|da).*?(?:nhận|nhan)|already.*?(?:received|claimed).*?(?:red packet|gift)/i;
 const NO_RED_PACKET_PATTERN = /(?:không|khong|chưa|chua).*?(?:lì\s*xì|li\s*xi)|no.*?(?:red packet|gift).*?(?:available|left)/i;
 const NO_ROOMS_PATTERN = /(?:không|khong).*?(?:phòng\s*cưới|phong\s*cuoi)|no.*?(?:wedding|room)/i;
@@ -399,7 +399,7 @@ function buildResult(stats, config) {
   const rewardText = summarizeRewards(stats.rewards);
   let summary;
 
-  if (totalActions === 0 && totalFailures === 0) {
+  if (totalActions === 0 && totalFailures === 0 && totalAlreadyDone === 0) {
     summary = 'Chúc Phúc: Không có phòng cưới mới hoặc lì xì cần nhận.';
   } else {
     const parts = [];
