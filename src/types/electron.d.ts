@@ -1,3 +1,14 @@
+import type {
+  ProxyCreateInput,
+  ProxyImportItem,
+  ProxyItem,
+  ProxyStorageInfo,
+  ProxyTestResult,
+  ProxyUpdateInput,
+  ProfileProxyState,
+  ProxyOneToOneAssignmentResult
+} from '../shared';
+
 export interface DesktopVersions {
   appVersion: string;
   electronVersion: string;
@@ -13,6 +24,7 @@ export interface DesktopStorageInfo {
   schemaVersion?: number;
   profileCount: number;
   groupCount: number;
+  proxyCount?: number;
 }
 
 export interface MiniBrowserStatus {
@@ -32,23 +44,25 @@ export interface ClearSessionResult {
   message: string;
 }
 
+export interface ProxyAssignmentResult {
+  profiles: any[];
+  states: ProfileProxyState[];
+}
+
 export interface DesktopBridgeAPI {
   getVersions: () => Promise<DesktopVersions>;
   getStorageInfo: () => Promise<DesktopStorageInfo>;
 
-  // Profiles
   listProfiles: () => Promise<any[]>;
   createProfile: (profile: Partial<any>) => Promise<any>;
   updateProfile: (profileId: string, changes: Partial<any>) => Promise<any | null>;
   deleteProfile: (profileId: string) => Promise<boolean>;
 
-  // Groups
   listGroups: () => Promise<any[]>;
   createGroup: (group: Partial<any>) => Promise<any>;
   updateGroup: (groupId: string, changes: Partial<any>) => Promise<any | null>;
   deleteGroup: (groupId: string) => Promise<boolean>;
 
-  // Mini Browser
   openMiniBrowser: (profileId: string) => Promise<MiniBrowserStatus>;
   closeMiniBrowser: (profileId: string) => Promise<MiniBrowserStatus>;
   focusMiniBrowser: (profileId: string) => Promise<boolean>;
@@ -57,6 +71,25 @@ export interface DesktopBridgeAPI {
   listMiniBrowserStatuses: () => Promise<MiniBrowserStatus[]>;
   clearMiniBrowserSession: (profileId: string) => Promise<ClearSessionResult>;
   onMiniBrowserStatusChanged: (callback: (status: MiniBrowserStatus) => void) => () => void;
+
+  listProxies: () => Promise<ProxyItem[]>;
+  getProxy: (proxyId: string) => Promise<ProxyItem | null>;
+  createProxy: (input: ProxyCreateInput) => Promise<ProxyItem>;
+  updateProxy: (proxyId: string, changes: ProxyUpdateInput) => Promise<ProxyItem>;
+  deleteProxy: (proxyId: string) => Promise<{ deleted: boolean; affectedProfileIds: string[] }>;
+  importProxies: (items: ProxyImportItem[]) => Promise<ProxyItem[]>;
+  testProxy: (proxyId: string) => Promise<ProxyTestResult>;
+  testManyProxies: (proxyIds: string[]) => Promise<ProxyTestResult[]>;
+  assignProxyToProfiles: (profileIds: string[], proxyId: string) => Promise<ProxyAssignmentResult>;
+  assignProxiesOneToOne: (profileIds: string[], proxyIds: string[]) => Promise<ProxyOneToOneAssignmentResult>;
+  replaceProfilesForProxy: (proxyId: string, profileIds: string[]) => Promise<ProxyAssignmentResult>;
+  unassignProxyFromProfiles: (profileIds: string[]) => Promise<ProxyAssignmentResult>;
+  getProfileProxyState: (profileId: string) => Promise<ProfileProxyState>;
+  refreshProfileProxy: (profileId: string) => Promise<ProfileProxyState>;
+  getProxyStorageInfo: () => Promise<ProxyStorageInfo>;
+  onProxiesChanged: (callback: (proxies: ProxyItem[]) => void) => () => void;
+  onProxyTestStatusChanged: (callback: (result: ProxyTestResult) => void) => () => void;
+  onProfileProxyStateChanged: (callback: (state: ProfileProxyState) => void) => () => void;
 }
 
 declare global {

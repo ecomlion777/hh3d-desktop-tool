@@ -6,3 +6,11 @@ coverage/
 *.log
 .env*
 !.env.example
+
+# Local HH3D runtime databases and encrypted proxy credentials
+app-data.json
+app-data.backup.json
+app-data.tmp.json
+proxy-secrets.json
+proxy-secrets.backup.json
+proxy-secrets.tmp.json

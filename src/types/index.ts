@@ -5,6 +5,13 @@
 import {
   Profile,
   ProxyItem,
+  ProxyCreateInput,
+  ProxyUpdateInput,
+  ProxyImportItem,
+  ProxyTestResult,
+  ProfileProxyState,
+  ProxyStorageInfo,
+  ProxyOneToOneAssignmentResult,
   GroupItem,
   BatchTask,
   LogEntry,
@@ -46,14 +53,26 @@ export interface AppBridge {
   toggleModulesForProfiles?(ids: string[], enabledModules: string[]): Promise<boolean>;
   importProfiles?(importedProfiles: Partial<Profile>[]): Promise<boolean>;
 
-  // Proxies Management
+  // Real Proxy Manager
   listProxies(): Promise<ProxyItem[]>;
-  testProxy(proxyId: string): Promise<ProxyItem>;
-  testAllProxies?(): Promise<ProxyItem[]>;
+  getProxy?(proxyId: string): Promise<ProxyItem | null>;
+  createProxy?(input: ProxyCreateInput): Promise<ProxyItem>;
+  updateProxy?(proxyId: string, changes: ProxyUpdateInput): Promise<ProxyItem>;
+  deleteProxy?(proxyId: string): Promise<{ deleted: boolean; affectedProfileIds: string[] }>;
+  importProxies?(items: ProxyImportItem[]): Promise<ProxyItem[]>;
+  testProxy(proxyId: string): Promise<ProxyTestResult>;
+  testManyProxies?(proxyIds: string[]): Promise<ProxyTestResult[]>;
   assignProxy(profileIds: string[], proxyId: string): Promise<boolean>;
+  assignProxyToProfiles?(profileIds: string[], proxyId: string): Promise<boolean>;
+  assignProxiesOneToOne?(profileIds: string[], proxyIds: string[]): Promise<ProxyOneToOneAssignmentResult | boolean>;
   assignProfilesToProxy?(proxyId: string, profileIds: string[]): Promise<boolean>;
-  addSingleProxy?(proxyData: Partial<ProxyItem>): Promise<ProxyItem>;
-  addProxiesBatch?(lines: string[]): Promise<ProxyItem[]>;
+  unassignProxyFromProfiles?(profileIds: string[]): Promise<boolean>;
+  getProfileProxyState?(profileId: string): Promise<ProfileProxyState>;
+  refreshProfileProxy?(profileId: string): Promise<ProfileProxyState>;
+  getProxyStorageInfo?(): Promise<ProxyStorageInfo>;
+  // Compatibility aliases used by existing modal wiring.
+  addSingleProxy?(proxyData: ProxyCreateInput): Promise<ProxyItem>;
+  addProxiesBatch?(items: ProxyImportItem[]): Promise<ProxyItem[]>;
   deleteProxies?(ids: string[]): Promise<boolean>;
 
   // Batch Tasks Management
@@ -92,4 +111,7 @@ export interface AppBridge {
   onLogsUpdated?(callback: (logs: LogEntry[]) => void): () => void;
   onStatsUpdated?(callback: (stats: SystemStats) => void): () => void;
   onMiniBrowserStatusChanged?(callback: (status: MiniBrowserStatus) => void): () => void;
+  onProxiesChanged?(callback: (proxies: ProxyItem[]) => void): () => void;
+  onProxyTestStatusChanged?(callback: (result: ProxyTestResult) => void): () => void;
+  onProfileProxyStateChanged?(callback: (state: ProfileProxyState) => void): () => void;
 }

@@ -1,10 +1,10 @@
 /**
- * AssignProfilesToProxyModal - Assign multiple profiles to a specific proxy
+ * AssignProfilesToProxyModal - Replace the complete set of profiles assigned to a proxy.
  */
 
 import React, { useEffect, useMemo, useState } from 'react';
-import { X, Network, Search, CheckCircle2, AlertTriangle, Users } from 'lucide-react';
-import { ProxyItem, Profile } from '../../types';
+import { AlertTriangle, CheckCircle2, Network, Search, X } from 'lucide-react';
+import type { Profile, ProxyItem } from '../../types';
 
 interface AssignProfilesToProxyModalProps {
   isOpen: boolean;
@@ -21,204 +21,222 @@ export const AssignProfilesToProxyModal: React.FC<AssignProfilesToProxyModalProp
   profiles,
   onSubmit
 }) => {
-  // Initialize with profile IDs that currently use this proxy
   const [selectedProfileIds, setSelectedProfileIds] = useState<string[]>([]);
-
   const [searchQuery, setSearchQuery] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
-
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   useEffect(() => {
-    if (isOpen && proxy) {
-      setSelectedProfileIds(profiles.filter(profile => profile.proxyId === proxy.id).map(profile => profile.id));
-      setSearchQuery('');
-    }
+    if (!isOpen || !proxy) return;
+    setSelectedProfileIds(
+      profiles.filter(profile => profile.proxyId === proxy.id).map(profile => profile.id)
+    );
+    setSearchQuery('');
+    setErrorMsg(null);
+    setIsSubmitting(false);
   }, [isOpen, proxy, profiles]);
 
-  // Filter profiles based on search query
   const filteredProfiles = useMemo(() => {
-    if (!searchQuery.trim()) return profiles;
-    const q = searchQuery.toLowerCase();
-    return profiles.filter(p => 
-      p.characterName?.toLowerCase().includes(q) ||
-      p.uid?.toLowerCase().includes(q) ||
-      p.group?.toLowerCase().includes(q)
+    const query = searchQuery.trim().toLowerCase();
+    if (!query) return profiles;
+    return profiles.filter(profile =>
+      profile.characterName?.toLowerCase().includes(query) ||
+      profile.displayName?.toLowerCase().includes(query) ||
+      profile.uid?.toLowerCase().includes(query) ||
+      profile.group?.toLowerCase().includes(query)
     );
   }, [profiles, searchQuery]);
 
-  const handleToggleProfile = (id: string) => {
-    setSelectedProfileIds(prev => 
-      prev.includes(id) ? prev.filter(pId => pId !== id) : [...prev, id]
+  const activeRunningCount = useMemo(
+    () => profiles.filter(profile => selectedProfileIds.includes(profile.id) && profile.status === 'running').length,
+    [profiles, selectedProfileIds]
+  );
+
+  const newlyAssignedCount = useMemo(() => {
+    if (!proxy) return 0;
+    return selectedProfileIds.filter(id => profiles.find(profile => profile.id === id)?.proxyId !== proxy.id).length;
+  }, [profiles, proxy, selectedProfileIds]);
+
+  const handleToggleProfile = (profileId: string) => {
+    if (isSubmitting) return;
+    setSelectedProfileIds(previous =>
+      previous.includes(profileId)
+        ? previous.filter(id => id !== profileId)
+        : [...previous, profileId]
     );
   };
 
   const handleSelectAllFiltered = () => {
-    const filteredIds = filteredProfiles.map(p => p.id);
+    if (isSubmitting) return;
+    const filteredIds = filteredProfiles.map(profile => profile.id);
     const allSelected = filteredIds.every(id => selectedProfileIds.includes(id));
-    if (allSelected) {
-      setSelectedProfileIds(prev => prev.filter(id => !filteredIds.includes(id)));
-    } else {
-      setSelectedProfileIds(prev => Array.from(new Set([...prev, ...filteredIds])));
-    }
+    setSelectedProfileIds(previous =>
+      allSelected
+        ? previous.filter(id => !filteredIds.includes(id))
+        : Array.from(new Set([...previous, ...filteredIds]))
+    );
   };
 
-  // Count active running profiles among selected
-  const activeRunningCount = useMemo(() => {
-    return profiles.filter(p => selectedProfileIds.includes(p.id) && p.status === 'running').length;
-  }, [profiles, selectedProfileIds]);
+  const handleSubmit = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!proxy || isSubmitting) return;
 
-  if (!isOpen || !proxy) return null;
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setIsSubmitting(true);
     try {
+      setIsSubmitting(true);
+      setErrorMsg(null);
       await onSubmit(proxy.id, selectedProfileIds);
       onClose();
+    } catch (error) {
+      setErrorMsg(error instanceof Error ? error.message : String(error));
     } finally {
       setIsSubmitting(false);
     }
   };
 
+  if (!isOpen || !proxy) return null;
+
   return (
-    <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200 select-none">
-      <div className="bg-slate-900 border border-slate-700 rounded-lg shadow-2xl w-full max-w-xl overflow-hidden text-slate-200 flex flex-col max-h-[90vh]">
-        
-        {/* Header */}
-        <div className="bg-slate-950 px-4 py-3 border-b border-slate-800 flex items-center justify-between">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm animate-in fade-in duration-200 select-none">
+      <div className="flex max-h-[90vh] w-full max-w-xl flex-col overflow-hidden rounded-lg border border-slate-700 bg-slate-900 text-slate-200 shadow-2xl">
+        <div className="flex items-center justify-between border-b border-slate-800 bg-slate-950 px-4 py-3">
           <div className="flex items-center space-x-2">
-            <Network className="w-5 h-5 text-amber-400" />
+            <Network className="h-5 w-5 text-amber-400" />
             <div>
-              <h3 className="font-bold text-sm text-slate-100">Gán Profiles Cho Proxy</h3>
-              <p className="text-[11px] text-slate-400 font-mono">
-                {proxy.name} ({proxy.ipPort}) - {proxy.location || 'Chưa định vị'}
+              <h3 className="text-sm font-bold text-slate-100">Gán Profiles Cho Proxy</h3>
+              <p className="font-mono text-[11px] text-slate-400">
+                {proxy.name} ({proxy.protocol}://{proxy.host}:{proxy.port})
               </p>
             </div>
           </div>
           <button
+            type="button"
             onClick={onClose}
-            className="p-1 text-slate-400 hover:text-white hover:bg-slate-800 rounded transition"
+            disabled={isSubmitting}
+            className="rounded p-1 text-slate-400 transition hover:bg-slate-800 hover:text-white disabled:opacity-50"
           >
-            <X className="w-4 h-4" />
+            <X className="h-4 w-4" />
           </button>
         </div>
 
-        {/* Multi-Active Proxy Warning */}
-        {activeRunningCount > 1 && (
-          <div className="bg-amber-950/80 border-b border-amber-800 px-4 py-2 flex items-center gap-2 text-amber-300 text-xs">
-            <AlertTriangle className="w-4 h-4 shrink-0 text-amber-400" />
-            <span>
-              <strong>Cảnh báo IP:</strong> Có <strong>{activeRunningCount} profile đang Active</strong> được gán cùng Proxy này. Việc chạy đồng thời nhiều game client trên 1 IP có thể làm giảm tốc độ hoặc bị giới hạn bởi game server.
-            </span>
+        {!proxy.enabled && (
+          <div className="flex items-center gap-2 border-b border-rose-800 bg-rose-950/70 px-4 py-2 text-xs text-rose-200">
+            <AlertTriangle className="h-4 w-4 shrink-0" />
+            Proxy đang tắt. Bạn chỉ có thể bỏ bớt profile đang gán; không thể gán thêm profile mới.
           </div>
         )}
 
-        {/* Content Body */}
-        <div className="p-4 flex-1 overflow-hidden flex flex-col space-y-3">
-          
-          {/* Controls bar */}
-          <div className="flex items-center justify-between gap-2">
-            <div className="relative flex-1">
-              <Search className="w-3.5 h-3.5 absolute left-2.5 top-2.5 text-slate-500" />
-              <input
-                type="text"
-                placeholder="Tìm UID, tên nhân vật, nhóm..."
-                value={searchQuery}
-                onChange={e => setSearchQuery(e.target.value)}
-                className="w-full bg-slate-950 border border-slate-800 rounded pl-8 pr-3 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-amber-500"
-              />
-            </div>
-            
-            <button
-              type="button"
-              onClick={handleSelectAllFiltered}
-              className="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded text-xs transition shrink-0"
-            >
-              Chọn / Bỏ chọn tất cả ({filteredProfiles.length})
-            </button>
+        {activeRunningCount > 0 && (
+          <div className="flex items-center gap-2 border-b border-amber-800 bg-amber-950/70 px-4 py-2 text-xs text-amber-200">
+            <AlertTriangle className="h-4 w-4 shrink-0" />
+            {activeRunningCount} profile đang chạy sẽ bị đóng Mini Browser trước khi cấu hình mạng thay đổi. Ứng dụng không tự mở lại.
           </div>
+        )}
 
-          {/* Profiles list */}
-          <div className="flex-1 overflow-y-auto border border-slate-800 rounded bg-slate-950 p-2 space-y-1">
-            {filteredProfiles.length === 0 ? (
-              <div className="py-8 text-center text-slate-500 text-xs">
-                Không tìm thấy profile phù hợp
+        <form onSubmit={handleSubmit} className="flex min-h-0 flex-1 flex-col">
+          <div className="flex min-h-0 flex-1 flex-col space-y-3 p-4">
+            <div className="flex items-center justify-between gap-2">
+              <div className="relative flex-1">
+                <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-slate-500" />
+                <input
+                  type="text"
+                  placeholder="Tìm UID, tên nhân vật, nhóm..."
+                  value={searchQuery}
+                  onChange={event => setSearchQuery(event.target.value)}
+                  disabled={isSubmitting}
+                  className="w-full rounded border border-slate-800 bg-slate-950 py-1.5 pl-8 pr-3 text-xs text-slate-200 outline-none focus:border-amber-500 disabled:opacity-60"
+                />
               </div>
-            ) : (
-              filteredProfiles.map(p => {
-                const isSelected = selectedProfileIds.includes(p.id);
-                const isRunning = p.status === 'running';
+              <button
+                type="button"
+                onClick={handleSelectAllFiltered}
+                disabled={isSubmitting}
+                className="shrink-0 rounded bg-slate-800 px-2.5 py-1.5 text-xs text-slate-300 transition hover:bg-slate-700 disabled:opacity-50"
+              >
+                Chọn / Bỏ chọn tất cả ({filteredProfiles.length})
+              </button>
+            </div>
+
+            <div className="min-h-[260px] flex-1 space-y-1 overflow-y-auto rounded border border-slate-800 bg-slate-950 p-2">
+              {filteredProfiles.length === 0 ? (
+                <div className="py-8 text-center text-xs text-slate-500">Không tìm thấy profile phù hợp</div>
+              ) : filteredProfiles.map(profile => {
+                const isSelected = selectedProfileIds.includes(profile.id);
+                const isAlreadyAssigned = profile.proxyId === proxy.id;
+                const cannotNewAssign = !proxy.enabled && !isAlreadyAssigned;
 
                 return (
                   <label
-                    key={p.id}
-                    onClick={() => handleToggleProfile(p.id)}
-                    className={`flex items-center justify-between p-2 rounded cursor-pointer transition text-xs select-none ${
-                      isSelected ? 'bg-amber-950/30 border border-amber-800/50 text-slate-100' : 'hover:bg-slate-900 border border-transparent text-slate-400'
+                    key={profile.id}
+                    className={`flex items-center justify-between rounded border p-2 text-xs transition ${
+                      cannotNewAssign
+                        ? 'cursor-not-allowed border-transparent opacity-45'
+                        : isSelected
+                          ? 'cursor-pointer border-amber-800/50 bg-amber-950/30 text-slate-100'
+                          : 'cursor-pointer border-transparent text-slate-400 hover:bg-slate-900'
                     }`}
                   >
                     <div className="flex items-center space-x-2.5">
                       <input
                         type="checkbox"
                         checked={isSelected}
-                        onChange={() => {}}
-                        className="rounded border-slate-700 text-amber-500 focus:ring-0 cursor-pointer"
+                        disabled={isSubmitting || cannotNewAssign}
+                        onChange={() => handleToggleProfile(profile.id)}
+                        className="cursor-pointer rounded border-slate-700 text-amber-500 focus:ring-0 disabled:cursor-not-allowed"
                       />
                       <div>
-                        <div className="font-semibold text-slate-200 flex items-center gap-1.5">
-                          <span>{p.characterName}</span>
-                          <span className="text-[10px] text-slate-500 font-mono">({p.uid})</span>
+                        <div className="flex items-center gap-1.5 font-semibold text-slate-200">
+                          <span>{profile.characterName || profile.displayName}</span>
+                          <span className="font-mono text-[10px] text-slate-500">({profile.uid})</span>
                         </div>
-                        <div className="text-[10px] text-slate-400 font-mono">
-                          Nhóm: {p.group}
+                        <div className="font-mono text-[10px] text-slate-400">
+                          Nhóm: {profile.group || 'Chưa Phân Nhóm'}
+                          {profile.proxyId && profile.proxyId !== proxy.id ? ' • Đang dùng proxy khác' : ''}
                         </div>
                       </div>
                     </div>
-
-                    <div className="flex items-center space-x-2">
-                      {isRunning ? (
-                        <span className="px-1.5 py-0.5 rounded text-[10px] bg-emerald-950 text-emerald-300 border border-emerald-800 font-medium">
-                          Đang chạy
-                        </span>
-                      ) : (
-                        <span className="px-1.5 py-0.5 rounded text-[10px] bg-slate-800 text-slate-400">
-                          {p.status}
-                        </span>
-                      )}
-                    </div>
+                    <span className={`rounded px-1.5 py-0.5 text-[10px] ${
+                      profile.status === 'running'
+                        ? 'border border-emerald-800 bg-emerald-950 text-emerald-300'
+                        : 'bg-slate-800 text-slate-400'
+                    }`}>
+                      {profile.status === 'running' ? 'Đang chạy' : profile.status}
+                    </span>
                   </label>
                 );
-              })
+              })}
+            </div>
+
+            <div className="flex items-center justify-between text-[11px] text-slate-400">
+              <span>Được gán sau khi lưu: <strong className="text-amber-400">{selectedProfileIds.length}</strong></span>
+              <span>Gán mới: <strong className="text-cyan-400">{newlyAssignedCount}</strong></span>
+            </div>
+
+            {errorMsg && (
+              <div className="rounded border border-rose-800 bg-rose-950/60 p-2 text-xs text-rose-200">
+                {errorMsg}
+              </div>
             )}
           </div>
 
-          <div className="text-[11px] text-slate-400 flex items-center justify-between">
-            <span>Tổng số profile được gán: <strong className="text-amber-400">{selectedProfileIds.length}</strong></span>
-            {activeRunningCount > 0 && (
-              <span className="text-emerald-400">({activeRunningCount} đang running)</span>
-            )}
+          <div className="flex justify-end space-x-2 border-t border-slate-800 bg-slate-950 px-4 py-3">
+            <button
+              type="button"
+              onClick={onClose}
+              disabled={isSubmitting}
+              className="rounded bg-slate-800 px-4 py-1.5 text-xs font-medium text-slate-300 transition hover:bg-slate-700 disabled:opacity-50"
+            >
+              Hủy
+            </button>
+            <button
+              type="submit"
+              disabled={isSubmitting}
+              className="flex items-center gap-1.5 rounded bg-amber-600 px-4 py-1.5 text-xs font-medium text-white transition hover:bg-amber-500 disabled:opacity-50"
+            >
+              <CheckCircle2 className="h-4 w-4" />
+              <span>{isSubmitting ? 'Đang áp dụng...' : 'Lưu Gán Profiles'}</span>
+            </button>
           </div>
-        </div>
-
-        {/* Footer */}
-        <div className="bg-slate-950 px-4 py-3 border-t border-slate-800 flex justify-end space-x-2">
-          <button
-            type="button"
-            onClick={onClose}
-            className="px-4 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded font-medium text-xs transition"
-          >
-            Hủy
-          </button>
-          <button
-            type="button"
-            onClick={handleSubmit}
-            disabled={isSubmitting}
-            className="px-4 py-1.5 bg-amber-600 hover:bg-amber-500 disabled:opacity-50 text-white rounded font-medium text-xs transition flex items-center gap-1.5"
-          >
-            <CheckCircle2 className="w-4 h-4" />
-            <span>Lưu Gán Profiles</span>
-          </button>
-        </div>
+        </form>
       </div>
     </div>
   );

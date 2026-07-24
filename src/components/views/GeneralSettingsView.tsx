@@ -3,8 +3,8 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { Settings, Save, CheckCircle2, Download, HardDrive, Info, FolderCheck, Database, FileCode } from 'lucide-react';
-import { GeneralAppSettings, DesktopVersions, DesktopStorageInfo } from '../../types';
+import { Settings, Save, CheckCircle2, Download, HardDrive, Info, FolderCheck, Database, FileCode, ShieldCheck, KeyRound } from 'lucide-react';
+import { GeneralAppSettings, DesktopVersions, DesktopStorageInfo, ProxyStorageInfo } from '../../types';
 import { appBridge } from '../../services/appBridgeService';
 
 interface GeneralSettingsViewProps {
@@ -31,6 +31,8 @@ export const GeneralSettingsView: React.FC<GeneralSettingsViewProps> = ({
   const [storageError, setStorageError] = useState<string | null>(null);
 
   const [openWindowsCount, setOpenWindowsCount] = useState<number>(0);
+  const [proxyStorageInfo, setProxyStorageInfo] = useState<ProxyStorageInfo | null>(null);
+  const [proxyStorageError, setProxyStorageError] = useState<string | null>(null);
 
   useEffect(() => {
     const statusMap = new Map<string, any>();
@@ -66,6 +68,25 @@ export const GeneralSettingsView: React.FC<GeneralSettingsViewProps> = ({
     return () => {
       if (unsub) unsub();
     };
+  }, []);
+
+  useEffect(() => {
+    const refreshProxyStorage = async () => {
+      if (!appBridge.getProxyStorageInfo) return;
+      try {
+        setProxyStorageInfo(await appBridge.getProxyStorageInfo());
+        setProxyStorageError(null);
+      } catch (error) {
+        setProxyStorageError(error instanceof Error ? error.message : String(error));
+      }
+    };
+
+    refreshProxyStorage();
+    const unsubscribe = appBridge.onProxiesChanged
+      ? appBridge.onProxiesChanged(() => { void refreshProxyStorage(); })
+      : undefined;
+
+    return () => { if (unsubscribe) unsubscribe(); };
   }, []);
 
   useEffect(() => {
@@ -366,6 +387,35 @@ export const GeneralSettingsView: React.FC<GeneralSettingsViewProps> = ({
           </div>
           <p className="text-[11px] text-slate-400 font-mono bg-slate-950/60 p-2 rounded border border-slate-800/80">
             Note: Cookies and browser session data are not stored in app-data.json.
+          </p>
+        </div>
+
+        {/* Proxy Storage Card (Phase 05A) */}
+        <div className="md:col-span-2 bg-slate-900 border border-slate-800 rounded-lg p-4 space-y-3">
+          <h3 className="font-bold text-slate-200 uppercase text-[11px] tracking-wider border-b border-slate-800 pb-2 text-amber-400 flex items-center justify-between">
+            <span className="flex items-center gap-1.5">
+              <ShieldCheck className="w-4 h-4 text-amber-400" />
+              <span>Proxy Storage & Credential Encryption (Phase 05A)</span>
+            </span>
+            <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-amber-950 text-amber-300 border border-amber-800">Per-profile Session Proxy</span>
+          </h3>
+
+          {proxyStorageError ? (
+            <div className="rounded border border-rose-800 bg-rose-950/40 p-3 text-[11px] text-rose-300">{proxyStorageError}</div>
+          ) : proxyStorageInfo ? (
+            <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
+              <div className="bg-slate-950 p-3 rounded border border-slate-800"><span className="text-[10px] text-slate-500 uppercase block">Schema</span><strong className="font-mono text-amber-400">v{proxyStorageInfo.schemaVersion}</strong></div>
+              <div className="bg-slate-950 p-3 rounded border border-slate-800"><span className="text-[10px] text-slate-500 uppercase block">Proxy Count</span><strong className="font-mono text-cyan-400">{proxyStorageInfo.proxyCount}</strong></div>
+              <div className="bg-slate-950 p-3 rounded border border-slate-800"><span className="text-[10px] text-slate-500 uppercase block">Profiles Assigned</span><strong className="font-mono text-purple-400">{proxyStorageInfo.assignedProfileCount}</strong></div>
+              <div className="bg-slate-950 p-3 rounded border border-slate-800"><span className="text-[10px] text-slate-500 uppercase block">Encryption</span><strong className={proxyStorageInfo.encryptionAvailable ? 'text-emerald-400' : 'text-rose-400'}>{proxyStorageInfo.encryptionAvailable ? 'Available' : 'Unavailable'}</strong></div>
+              <div className="bg-slate-950 p-3 rounded border border-slate-800"><span className="text-[10px] text-slate-500 uppercase block">Secret File</span><strong className={proxyStorageInfo.secretFileExists ? 'text-emerald-400' : 'text-slate-400'}>{proxyStorageInfo.secretFileExists ? 'Present' : 'Not created'}</strong></div>
+            </div>
+          ) : (
+            <div className="text-[11px] text-slate-500">Proxy Storage chỉ khả dụng trong Electron Desktop.</div>
+          )}
+
+          <p className="flex items-center gap-1.5 rounded border border-slate-800 bg-slate-950/60 p-2 text-[11px] text-slate-400">
+            <KeyRound className="h-3.5 w-3.5 text-amber-400" /> Proxy password không bao giờ được lưu trong app-data.json hoặc trả về React renderer.
           </p>
         </div>
 

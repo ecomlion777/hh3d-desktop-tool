@@ -3,7 +3,7 @@
  */
 
 import React, { useState } from 'react';
-import { ViewTab, Profile, GroupItem } from './types';
+import { ViewTab, Profile, GroupItem, ProxyItem, ProxyCreateInput, ProxyUpdateInput, ProxyImportItem } from './types';
 import { useAppBridge } from './hooks';
 
 import { AppHeader } from './components/layout/AppHeader';
@@ -38,6 +38,7 @@ export default function App() {
     activityConfig,
     generalSettings,
     miniBrowserStatuses,
+    profileProxyStates,
     systemStats,
     refreshData,
     createProfile,
@@ -53,9 +54,11 @@ export default function App() {
     focusMiniBrowser,
     testProxy,
     testAllProxies,
-    addSingleProxy,
-    addProxiesBatch,
+    createProxy,
+    updateProxy,
+    importProxyItems,
     assignProfilesToProxy,
+    assignProxiesOneToOne,
     deleteProxies,
     runGroup,
     stopGroup,
@@ -77,8 +80,8 @@ export default function App() {
   // Selected Profile IDs state reported from ProfileManagerView
   const [selectedProfileIds, setSelectedProfileIds] = useState<string[]>([]);
 
-  // Mini Browser Error state
-  const [miniBrowserError, setMiniBrowserError] = useState<string | null>(null);
+  // Shared runtime error banner for Mini Browser and Proxy Manager
+  const [runtimeError, setRuntimeError] = useState<string | null>(null);
 
   // Filters & Search
   const [selectedGroup, setSelectedGroup] = useState<string | null>(null);
@@ -90,6 +93,7 @@ export default function App() {
   const [isAddGroupOpen, setIsAddGroupOpen] = useState(false);
   const [editingGroup, setEditingGroup] = useState<GroupItem | null>(null);
   const [isAddProxyOpen, setIsAddProxyOpen] = useState(false);
+  const [editingProxy, setEditingProxy] = useState<ProxyItem | null>(null);
   const [miniBrowserProfile, setMiniBrowserProfile] = useState<Profile | null>(null);
 
   // Group Handlers
@@ -118,9 +122,18 @@ export default function App() {
     }
   };
 
+  const handleStartSelectedProfiles = async (profileIds: string[]) => {
+    // Running profiles is independent from proxy quantity. Profiles without an
+    // assigned proxy continue in Direct mode; assigned proxies are enforced per
+    // profile by ProxySessionManager when their network session is opened.
+    setRuntimeError(null);
+    await startProfiles(profileIds);
+  };
+
   // Group Handlers
   const handleRunSelectedGroup = async () => {
     const targetGroup = selectedGroup || (groups[0]?.name || 'Nhóm Chính (Main)');
+    setRuntimeError(null);
     await runGroup(targetGroup);
   };
 
@@ -140,15 +153,15 @@ export default function App() {
   };
 
   const handleAddSingleProfile = async (data: { characterName: string; uid: string; group: string; groupId?: string; proxyId: string }) => {
-    const px = proxies.find(p => p.id === data.proxyId) || proxies[0];
+    const px = data.proxyId ? proxies.find(p => p.id === data.proxyId) : undefined;
     await createProfile({
       characterName: data.characterName,
       uid: data.uid,
       groupId: data.groupId,
       group: data.group,
-      proxyId: px ? px.id : 'proxy_1',
-      proxyAddress: px ? px.ipPort : '103.142.10.100:8080',
-      currentIp: px ? px.ipPort.split(':')[0] : '103.142.10.100',
+      proxyId: px?.id || null,
+      proxyAddress: px ? `${px.host}:${px.port}` : 'Không dùng Proxy',
+      currentIp: '',
       status: 'stopped',
       currentActivity: 'Vừa khởi tạo',
       level: 70,
@@ -157,7 +170,7 @@ export default function App() {
   };
 
   const handleAddBulkProfiles = async (lines: string[], groupName: string, proxyId: string, groupId?: string) => {
-    const px = proxies.find(p => p.id === proxyId) || proxies[0];
+    const px = proxyId ? proxies.find(p => p.id === proxyId) : undefined;
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i].trim();
       if (!line) continue;
@@ -170,9 +183,9 @@ export default function App() {
         uid: uidVal,
         groupId: groupId,
         group: groupName,
-        proxyId: px ? px.id : 'proxy_1',
-        proxyAddress: px ? px.ipPort : '103.142.10.100:8080',
-        currentIp: px ? px.ipPort.split(':')[0] : '103.142.10.100',
+        proxyId: px?.id || null,
+        proxyAddress: px ? `${px.host}:${px.port}` : 'Không dùng Proxy',
+        currentIp: '',
         status: 'stopped',
         currentActivity: 'Chờ thiết lập',
         level: 75,
@@ -181,14 +194,111 @@ export default function App() {
     }
   };
 
+  const handleOpenCreateProxy = () => {
+    setEditingProxy(null);
+    setIsAddProxyOpen(true);
+  };
+
+  const handleOpenEditProxy = (proxy: ProxyItem) => {
+    setEditingProxy(proxy);
+    setIsAddProxyOpen(true);
+  };
+
+  const handleProxySubmit = async (data: ProxyCreateInput | ProxyUpdateInput) => {
+    if (editingProxy) {
+      await updateProxy(editingProxy.id, data as ProxyUpdateInput);
+    } else {
+      await createProxy(data as ProxyCreateInput);
+    }
+  };
+
+  const handleToggleProxyEnabled = async (proxy: ProxyItem) => {
+    await updateProxy(proxy.id, { enabled: !proxy.enabled });
+  };
+
+
+  const handleQuickImportAndAssignProxies = async (
+    profileIds: string[],
+    proxyItems: ProxyImportItem[]
+  ) => {
+    if (profileIds.length === 0 || profileIds.length !== proxyItems.length) {
+      throw new Error('Số profile và số proxy dùng để gán phải bằng nhau.');
+    }
+
+    const fullIdentitySet = new Set<string>();
+    const existingUnauthByEndpoint = new Map(
+      proxies
+        .filter(proxy => !proxy.authRequired && proxy.enabled)
+        .map(proxy => [
+          `${proxy.protocol}|${proxy.host.trim().toLowerCase()}|${proxy.port}`,
+          proxy
+        ])
+    );
+
+    const targetProxyIds = new Array<string>(proxyItems.length);
+    const newItems: ProxyImportItem[] = [];
+    const newItemIndexes: number[] = [];
+
+    for (let index = 0; index < proxyItems.length; index++) {
+      const item = proxyItems[index];
+      const fullIdentity = [
+        item.protocol,
+        item.host.trim().toLowerCase(),
+        item.port,
+        item.username || '',
+        item.password || ''
+      ].join('|');
+
+      if (fullIdentitySet.has(fullIdentity)) {
+        throw new Error(`Proxy ở vị trí ${index + 1} bị trùng hoàn toàn trong danh sách.`);
+      }
+      fullIdentitySet.add(fullIdentity);
+
+      const hasCredentials = Boolean(item.username || item.password || item.authRequired);
+      const endpointIdentity = `${item.protocol}|${item.host.trim().toLowerCase()}|${item.port}`;
+      const reusable = hasCredentials ? undefined : existingUnauthByEndpoint.get(endpointIdentity);
+
+      if (reusable) {
+        targetProxyIds[index] = reusable.id;
+      } else {
+        newItemIndexes.push(index);
+        newItems.push(item);
+      }
+    }
+
+    if (newItems.length > 0) {
+      const created = await importProxyItems(newItems);
+      if (created.length !== newItems.length) {
+        throw new Error('Số proxy import thành công không khớp với kế hoạch gán.');
+      }
+      newItemIndexes.forEach((targetIndex, createdIndex) => {
+        targetProxyIds[targetIndex] = created[createdIndex].id;
+      });
+    }
+
+    if (targetProxyIds.some(proxyId => !proxyId)) {
+      throw new Error('Không thể xác định đầy đủ proxy để gán.');
+    }
+
+    try {
+      const result = await assignProxiesOneToOne(profileIds, targetProxyIds);
+      setRuntimeError(null);
+      return result;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setRuntimeError(message);
+      throw error;
+    }
+  };
+
   // Toolbar Mini Browser Handler - Strict Selection Rules
   const handleToolbarOpenMiniBrowser = async () => {
     if (selectedProfileIds.length === 0) {
-      setMiniBrowserError('Hãy chọn một profile');
+      setRuntimeError('Hãy chọn một profile');
       return;
     }
     if (selectedProfileIds.length > 1) {
-      setMiniBrowserError('Mini Browser chỉ mở cho một profile mỗi lần');
+      setRuntimeError('Mini Browser chỉ mở cho một profile mỗi lần');
       return;
     }
 
@@ -207,7 +317,7 @@ export default function App() {
       }
     } catch (err: any) {
       console.error(`Toolbar Mini Browser error for ${singleId}:`, err);
-      setMiniBrowserError(`Không thể mở Mini Browser: ${err?.message || String(err)}`);
+      setRuntimeError(`Không thể mở Mini Browser: ${err?.message || String(err)}`);
     }
   };
 
@@ -233,14 +343,14 @@ export default function App() {
       />
 
       {/* Mini Browser Error Banner */}
-      {miniBrowserError && (
+      {runtimeError && (
         <div className="bg-rose-950/90 border-b border-rose-800 text-rose-200 px-4 py-2 flex items-center justify-between text-xs font-medium z-50">
           <div className="flex items-center gap-2">
-            <span className="bg-rose-800 text-white font-bold px-1.5 py-0.5 rounded text-[10px] uppercase">Lỗi Mini Browser</span>
-            <span>{miniBrowserError}</span>
+            <span className="bg-rose-800 text-white font-bold px-1.5 py-0.5 rounded text-[10px] uppercase">Lỗi Ứng Dụng</span>
+            <span>{runtimeError}</span>
           </div>
           <button
-            onClick={() => setMiniBrowserError(null)}
+            onClick={() => setRuntimeError(null)}
             className="text-rose-400 hover:text-white px-2 py-0.5 rounded hover:bg-rose-900 transition-colors font-bold"
           >
             ✕
@@ -291,21 +401,23 @@ export default function App() {
               searchQuery={searchQuery}
               onSearchChange={setSearchQuery}
               onToggleProfileRun={handleToggleProfileRun}
-              onStartSelectedProfiles={startProfiles}
+              onStartSelectedProfiles={handleStartSelectedProfiles}
               onStopSelectedProfiles={stopProfiles}
               onDeleteSelectedProfiles={deleteProfiles}
               onOpenMiniBrowser={(profileId) => openMiniBrowser(profileId)}
               onFocusMiniBrowser={(profileId) => focusMiniBrowser(profileId)}
-              onMiniBrowserError={setMiniBrowserError}
+              onMiniBrowserError={setRuntimeError}
               onOpenMiniBrowserDetails={(profile) => setMiniBrowserProfile(profile)}
               onOpenProfileSettings={(p) => setMiniBrowserProfile(p)}
               onOpenAddProfile={() => setIsAddProfileOpen(true)}
               onUpdateProfile={updateProfile}
               onAssignGroupForSelected={assignGroupForProfiles}
               onAssignProxyForSelected={assignProxyForProfiles}
+              onQuickImportAndAssignProxies={handleQuickImportAndAssignProxies}
               onToggleModulesForSelected={toggleModulesForProfiles}
               onImportProfilesFromJSON={importProfiles}
               miniBrowserStatuses={miniBrowserStatuses}
+              profileProxyStates={profileProxyStates}
               onSelectionChange={setSelectedProfileIds}
             />
           )}
@@ -316,9 +428,12 @@ export default function App() {
               profiles={profiles}
               onTestProxy={testProxy}
               onTestAllProxies={testAllProxies}
-              onOpenAddProxyModal={() => setIsAddProxyOpen(true)}
+              onOpenAddProxyModal={handleOpenCreateProxy}
+              onEditProxy={handleOpenEditProxy}
               onDeleteProxies={deleteProxies}
+              onToggleEnabled={handleToggleProxyEnabled}
               onAssignProfilesToProxy={assignProfilesToProxy}
+              onError={setRuntimeError}
             />
           )}
 
@@ -375,7 +490,10 @@ export default function App() {
         runningCount={runningCount}
         waitingCount={profiles.filter(p => p.status === 'waiting').length}
         stoppedCount={profiles.filter(p => p.status === 'stopped').length}
-        proxyErrorCount={profiles.filter(p => p.status === 'proxy_error').length}
+        proxyErrorCount={new Set([
+          ...profiles.filter(p => p.status === 'proxy_error').map(p => p.id),
+          ...Object.values(profileProxyStates).filter(state => state.state === 'error').map(state => state.profileId)
+        ]).size}
         loginRequiredCount={profiles.filter(p => p.status === 'login_required').length}
         systemStats={systemStats}
         activeFilterStatus={statusFilter}
@@ -412,9 +530,13 @@ export default function App() {
 
       <ProxyEditModal
         isOpen={isAddProxyOpen}
-        onClose={() => setIsAddProxyOpen(false)}
-        onSubmitSingleProxy={addSingleProxy}
-        onSubmitBulkProxies={addProxiesBatch}
+        proxy={editingProxy}
+        onClose={() => {
+          setIsAddProxyOpen(false);
+          setEditingProxy(null);
+        }}
+        onSubmit={handleProxySubmit}
+        onImport={async items => { await importProxyItems(items); }}
       />
 
     </div>

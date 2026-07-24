@@ -17,7 +17,14 @@ import {
   GeneralAppSettings,
   SystemStats,
   MiniBrowserStatus,
-  ClearSessionResult
+  ClearSessionResult,
+  ProxyCreateInput,
+  ProxyUpdateInput,
+  ProxyImportItem,
+  ProxyTestResult,
+  ProfileProxyState,
+  ProxyStorageInfo,
+  ProxyOneToOneAssignmentResult
 } from '../types';
 
 import { DesktopStorageInfo, DesktopVersions } from '../types/electron';
@@ -32,7 +39,6 @@ import {
   DEFAULT_GENERAL_SETTINGS
 } from '../mock';
 
-import { parseProxyLine, parseMultiLineProxies } from '../utils/proxyParser';
 
 const STORAGE_KEYS = {
   PROFILES: 'hh3d_desktop_profiles_v1',
@@ -60,7 +66,7 @@ export class MockAppBridge implements AppBridge {
   private batchSubscribers: ((batches: BatchTask[]) => void)[] = [];
   private logSubscribers: ((logs: LogEntry[]) => void)[] = [];
   private statsSubscribers: ((stats: SystemStats) => void)[] = [];
-  private activeBatchIntervals: Map<string, NodeJS.Timeout> = new Map();
+  private activeBatchIntervals: Map<string, ReturnType<typeof setInterval>> = new Map();
 
   private notifyBatchesUpdated() {
     localStorage.setItem(STORAGE_KEYS.BATCHES, JSON.stringify(this.batches));
@@ -564,236 +570,295 @@ export class MockAppBridge implements AppBridge {
   }
 
   private recalculateProxyStats() {
-    const profileCountMap = new Map<string, number>();
-    const activeRunningCountMap = new Map<string, number>();
-
-    for (const p of this.profiles) {
-      if (p.proxyId) {
-        profileCountMap.set(p.proxyId, (profileCountMap.get(p.proxyId) || 0) + 1);
-        if (p.status === 'running') {
-          activeRunningCountMap.set(p.proxyId, (activeRunningCountMap.get(p.proxyId) || 0) + 1);
-        }
+    const counts = new Map<string, number>();
+    for (const profile of this.profiles) {
+      if (profile.proxyId) {
+        counts.set(profile.proxyId, (counts.get(profile.proxyId) || 0) + 1);
       }
     }
-
-    this.proxies = this.proxies.map(px => ({
-      ...px,
-      assignedProfilesCount: profileCountMap.get(px.id) || 0,
-      activeRunningProfilesCount: activeRunningCountMap.get(px.id) || 0
+    this.proxies = this.proxies.map(proxy => ({
+      ...proxy,
+      assignedProfileCount: counts.get(proxy.id) || 0,
+      assignedProfilesCount: counts.get(proxy.id) || 0
     }));
   }
 
   async listProxies(): Promise<ProxyItem[]> {
     this.recalculateProxyStats();
-    return [...this.proxies];
+    return this.proxies.map(proxy => ({ ...proxy }));
   }
 
-  async testProxy(proxyId: string): Promise<ProxyItem> {
-    const targetIdx = this.proxies.findIndex(p => p.id === proxyId);
-    if (targetIdx === -1) throw new Error('Proxy không tồn tại!');
+  async getProxy(proxyId: string): Promise<ProxyItem | null> {
+    return this.proxies.find(proxy => proxy.id === proxyId) || null;
+  }
 
-    this.proxies[targetIdx].status = 'checking';
-    this.persistProxies();
-
-    await new Promise(r => setTimeout(r, 400 + Math.random() * 400));
-
-    const rand = Math.random();
-    let status: 'online' | 'slow' | 'offline' = 'online';
-    let latency = Math.floor(20 + Math.random() * 90);
-
-    if (rand < 0.12) {
-      status = 'offline';
-      latency = 0;
-    } else if (rand < 0.28) {
-      status = 'slow';
-      latency = Math.floor(180 + Math.random() * 250);
-    }
-
-    this.proxies[targetIdx] = {
-      ...this.proxies[targetIdx],
-      status,
-      latencyMs: latency,
-      ping: latency,
-      lastCheckedAt: new Date().toISOString(),
-      lastChecked: new Date().toLocaleTimeString('vi-VN')
+  async createProxy(input: ProxyCreateInput): Promise<ProxyItem> {
+    const duplicate = this.proxies.some(proxy => proxy.name.trim().toLowerCase() === input.name.trim().toLowerCase());
+    if (duplicate) throw new Error(`Tên proxy "${input.name}" đã tồn tại.`);
+    const now = new Date().toISOString();
+    const proxy: ProxyItem = {
+      id: `mock_proxy_${Date.now()}_${Math.floor(Math.random() * 10000)}`,
+      name: input.name.trim(),
+      protocol: input.protocol,
+      host: input.host.trim(),
+      port: Number(input.port),
+      enabled: input.enabled !== false,
+      authRequired: Boolean(input.authRequired),
+      hasCredentials: Boolean(input.authRequired && input.username && input.password),
+      maskedUsername: input.username ? `${input.username[0]}***` : undefined,
+      credentialState: input.authRequired ? 'saved' : 'none',
+      notes: input.notes || '',
+      createdAt: now,
+      updatedAt: now,
+      assignedProfileCount: 0,
+      testState: 'not_tested',
+      ipPort: `${input.host}:${input.port}`,
+      status: 'unknown'
     };
-
+    this.proxies.unshift(proxy);
     this.persistProxies();
-    this.addLogMessage('info', 'PROXY_MANAGER', `Test Proxy ${this.proxies[targetIdx].ipPort}: ${status.toUpperCase()} (${latency}ms)`);
-    return this.proxies[targetIdx];
+    return { ...proxy };
   }
 
-  async testAllProxies(): Promise<ProxyItem[]> {
-    for (let i = 0; i < this.proxies.length; i++) {
-      this.proxies[i].status = 'checking';
-    }
-    this.persistProxies();
-
-    await new Promise(r => setTimeout(r, 500));
-
-    for (let i = 0; i < this.proxies.length; i++) {
-      const rand = Math.random();
-      let status: 'online' | 'slow' | 'offline' = 'online';
-      let latency = Math.floor(20 + Math.random() * 90);
-
-      if (rand < 0.12) {
-        status = 'offline';
-        latency = 0;
-      } else if (rand < 0.28) {
-        status = 'slow';
-        latency = Math.floor(180 + Math.random() * 250);
-      }
-
-      this.proxies[i] = {
-        ...this.proxies[i],
-        status,
-        latencyMs: latency,
-        ping: latency,
-        lastCheckedAt: new Date().toISOString(),
-        lastChecked: new Date().toLocaleTimeString('vi-VN')
-      };
-    }
-
-    this.persistProxies();
-    this.addLogMessage('success', 'PROXY_MANAGER', `Đã kiểm tra xong tốc độ tất cả ${this.proxies.length} Proxy.`);
-    return [...this.proxies];
-  }
-
-  async addSingleProxy(proxyData: Partial<ProxyItem>): Promise<ProxyItem> {
-    const locations = ['Việt Nam (Hà Nội)', 'Việt Nam (TP.HCM)', 'Singapore', 'Japan (Tokyo)', 'USA (West)'];
-    const host = proxyData.host ? proxyData.host.trim() : '103.142.10.100';
-    const port = proxyData.port || 8080;
-    const ipPort = `${host}:${port}`;
-
-    const newPx: ProxyItem = {
-      id: `proxy_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
-      protocol: proxyData.protocol || 'SOCKS5',
-      host,
-      port,
-      username: proxyData.username ? proxyData.username.trim() : undefined,
-      password: proxyData.password ? proxyData.password.trim() : undefined,
-      passwordEncrypted: proxyData.password ? `enc_b64_${btoa(proxyData.password)}` : undefined,
-      expectedIp: host,
-      currentIp: host,
-      latencyMs: 0,
-      status: 'unknown',
-      lastCheckedAt: new Date().toISOString(),
-
-      name: proxyData.name ? proxyData.name.trim() : `Proxy Manual ${this.proxies.length + 1}`,
-      ipPort,
-      ping: 0,
-      location: proxyData.location || locations[Math.floor(Math.random() * locations.length)],
-      assignedProfilesCount: 0,
-      activeRunningProfilesCount: 0,
-      lastChecked: 'Chưa test'
+  async updateProxy(proxyId: string, changes: ProxyUpdateInput): Promise<ProxyItem> {
+    const index = this.proxies.findIndex(proxy => proxy.id === proxyId);
+    if (index < 0) throw new Error('Proxy không tồn tại.');
+    const existing = this.proxies[index];
+    const nextHost = changes.host?.trim() || existing.host;
+    const nextPort = changes.port !== undefined ? Number(changes.port) : existing.port;
+    const credentialsUpdated = Boolean(changes.password);
+    const updated: ProxyItem = {
+      id: existing.id,
+      name: changes.name?.trim() || existing.name,
+      protocol: changes.protocol || existing.protocol,
+      host: nextHost,
+      port: nextPort,
+      enabled: changes.enabled !== undefined ? changes.enabled : existing.enabled,
+      authRequired: changes.clearCredentials ? false : (changes.authRequired ?? existing.authRequired),
+      hasCredentials: changes.clearCredentials ? false : (credentialsUpdated ? true : existing.hasCredentials),
+      maskedUsername: changes.clearCredentials
+        ? undefined
+        : (changes.username ? `${changes.username[0]}***` : existing.maskedUsername),
+      credentialState: changes.clearCredentials ? 'none' : (credentialsUpdated ? 'saved' : existing.credentialState),
+      notes: changes.notes !== undefined ? changes.notes : existing.notes,
+      createdAt: existing.createdAt,
+      updatedAt: new Date().toISOString(),
+      assignedProfileCount: existing.assignedProfileCount,
+      testState: existing.testState,
+      publicIp: existing.publicIp,
+      latencyMs: existing.latencyMs,
+      resolvedRule: existing.resolvedRule,
+      lastCheckedAt: existing.lastCheckedAt,
+      testError: existing.testError,
+      ipPort: `${nextHost}:${nextPort}`,
+      assignedProfilesCount: existing.assignedProfilesCount,
+      activeRunningProfilesCount: existing.activeRunningProfilesCount,
+      status: existing.status,
+      currentIp: existing.currentIp,
+      expectedIp: existing.expectedIp,
+      ping: existing.ping,
+      lastChecked: existing.lastChecked,
+      location: existing.location
     };
-
-    this.proxies.unshift(newPx);
+    this.proxies[index] = updated;
     this.persistProxies();
-    this.addLogMessage('success', 'PROXY_MANAGER', `Thêm thủ công Proxy mới: ${ipPort}`);
-    return newPx;
+    return { ...updated };
   }
 
-  async addProxiesBatch(lines: string[]): Promise<ProxyItem[]> {
+  async deleteProxy(proxyId: string): Promise<{ deleted: boolean; affectedProfileIds: string[] }> {
+    const affectedProfileIds = this.profiles.filter(profile => profile.proxyId === proxyId).map(profile => profile.id);
+    this.proxies = this.proxies.filter(proxy => proxy.id !== proxyId);
+    this.profiles = this.profiles.map(profile => affectedProfileIds.includes(profile.id) ? {
+      ...profile,
+      proxyId: null,
+      proxyAddress: 'Không dùng Proxy'
+    } : profile);
+    this.persistProxies();
+    this.persistProfiles();
+    return { deleted: true, affectedProfileIds };
+  }
+
+  async importProxies(items: ProxyImportItem[]): Promise<ProxyItem[]> {
     const created: ProxyItem[] = [];
-    const locations = ['Việt Nam (Hà Nội)', 'Việt Nam (TP.HCM)', 'Singapore', 'Japan (Tokyo)', 'Hong Kong'];
-
-    const parsedList = parseMultiLineProxies(lines.join('\n'));
-
-    parsedList.forEach((item, idx) => {
-      const newPx: ProxyItem = {
-        id: `proxy_${Date.now()}_${idx}_${Math.floor(Math.random() * 1000)}`,
-        protocol: item.protocol,
-        host: item.host,
-        port: item.port,
-        username: item.username,
-        password: item.password,
-        passwordEncrypted: item.password ? `enc_b64_${btoa(item.password)}` : undefined,
-        expectedIp: item.host,
-        currentIp: item.host,
-        latencyMs: 0,
-        status: 'unknown',
-        lastCheckedAt: new Date().toISOString(),
-
-        name: `Proxy Bulk ${this.proxies.length + created.length + 1}`,
-        ipPort: item.ipPort,
-        ping: 0,
-        location: locations[idx % locations.length],
-        assignedProfilesCount: 0,
-        activeRunningProfilesCount: 0,
-        lastChecked: 'Chưa test'
-      };
-
-      created.push(newPx);
-    });
-
-    this.proxies = [...created, ...this.proxies];
-    this.persistProxies();
-    this.addLogMessage('success', 'PROXY_MANAGER', `Import thành công ${created.length} Proxy mới.`);
+    for (const item of items) {
+      created.push(await this.createProxy(item));
+    }
     return created;
   }
 
+  async testProxy(proxyId: string): Promise<ProxyTestResult> {
+    const proxy = this.proxies.find(item => item.id === proxyId);
+    if (!proxy) throw new Error('Proxy không tồn tại.');
+
+    const result: ProxyTestResult = {
+      proxyId,
+      testState: 'configuration_error',
+      resolvedRule: 'WEB_PREVIEW_MOCK_ONLY',
+      testError: 'Web Preview không thể thay đổi hoặc kiểm tra proxy Electron thật.',
+      checkedAt: new Date().toISOString()
+    };
+
+    this.proxies = this.proxies.map(item => item.id === proxyId ? {
+      ...item,
+      testState: result.testState,
+      publicIp: undefined,
+      latencyMs: undefined,
+      lastCheckedAt: result.checkedAt,
+      testError: result.testError,
+      status: 'unknown'
+    } : item);
+    this.persistProxies();
+    return result;
+  }
+
+  async testManyProxies(proxyIds: string[]): Promise<ProxyTestResult[]> {
+    const results: ProxyTestResult[] = [];
+    for (const proxyId of proxyIds) results.push(await this.testProxy(proxyId));
+    return results;
+  }
+
   async assignProxy(profileIds: string[], proxyId: string): Promise<boolean> {
-    const px = this.proxies.find(p => p.id === proxyId);
-    if (!px) return false;
-
-    this.profiles = this.profiles.map(p => {
-      if (profileIds.includes(p.id)) {
-        return {
-          ...p,
-          proxyId: px.id,
-          proxyAddress: px.ipPort || `${px.host}:${px.port}`,
-          expectedIp: px.host,
-          currentIp: px.host,
-          updatedAt: new Date().toISOString()
-        };
-      }
-      return p;
-    });
-
+    const proxy = this.proxies.find(item => item.id === proxyId);
+    if (!proxy || !proxy.enabled) return false;
+    this.profiles = this.profiles.map(profile => profileIds.includes(profile.id) ? {
+      ...profile,
+      proxyId,
+      proxyAddress: `${proxy.host}:${proxy.port}`,
+      updatedAt: new Date().toISOString()
+    } : profile);
     this.persistProfiles();
     this.recalculateProxyStats();
     this.persistProxies();
-    this.addLogMessage('info', 'PROXY_MANAGER', `Gán Proxy ${px.ipPort || px.host} cho ${profileIds.length} profiles.`);
     return true;
+  }
+
+  async assignProxyToProfiles(profileIds: string[], proxyId: string): Promise<boolean> {
+    return this.assignProxy(profileIds, proxyId);
+  }
+
+
+  async assignProxiesOneToOne(
+    profileIds: string[],
+    proxyIds: string[]
+  ): Promise<ProxyOneToOneAssignmentResult> {
+    if (profileIds.length === 0 || profileIds.length !== proxyIds.length) {
+      throw new Error('Số profile phải bằng số proxy khi gán 1-1.');
+    }
+    if (new Set(profileIds).size !== profileIds.length) {
+      throw new Error('Danh sách profile bị trùng.');
+    }
+    if (new Set(proxyIds).size !== proxyIds.length) {
+      throw new Error('Mỗi profile phải dùng một proxy khác nhau.');
+    }
+
+    const profileSet = new Set(profileIds);
+    const proxyMap = new Map(this.proxies.map(proxy => [proxy.id, proxy]));
+    const missingProfile = profileIds.find(id => !this.profiles.some(profile => profile.id === id));
+    if (missingProfile) throw new Error(`Profile ID "${missingProfile}" không tồn tại.`);
+
+    const invalidProxy = proxyIds.find(id => !proxyMap.get(id)?.enabled);
+    if (invalidProxy) throw new Error(`Proxy ID "${invalidProxy}" không tồn tại hoặc đang tắt.`);
+
+    const assignmentMap = new Map(profileIds.map((profileId, index) => [profileId, proxyIds[index]]));
+    this.profiles = this.profiles.map(profile => {
+      if (!profileSet.has(profile.id)) return profile;
+      const proxyId = assignmentMap.get(profile.id)!;
+      const proxy = proxyMap.get(proxyId)!;
+      return {
+        ...profile,
+        proxyId,
+        proxyAddress: `${proxy.host}:${proxy.port}`,
+        currentIp: '',
+        expectedIp: '',
+        updatedAt: new Date().toISOString()
+      };
+    });
+    this.persistProfiles();
+    this.recalculateProxyStats();
+    this.persistProxies();
+
+    return {
+      assignments: profileIds.map((profileId, index) => ({ profileId, proxyId: proxyIds[index] })),
+      profiles: profileIds
+        .map(profileId => this.profiles.find(profile => profile.id === profileId))
+        .filter((profile): profile is Profile => Boolean(profile)),
+      states: profileIds.map((profileId, index) => ({
+        profileId,
+        proxyId: proxyIds[index],
+        mode: 'proxy' as const,
+        state: 'idle' as const,
+        updatedAt: new Date().toISOString()
+      }))
+    };
   }
 
   async assignProfilesToProxy(proxyId: string, profileIds: string[]): Promise<boolean> {
-    const px = this.proxies.find(p => p.id === proxyId);
-    if (!px) return false;
-
-    this.profiles = this.profiles.map(p => {
-      if (profileIds.includes(p.id)) {
-        return {
-          ...p,
-          proxyId: px.id,
-          proxyAddress: px.ipPort || `${px.host}:${px.port}`,
-          expectedIp: px.host,
-          currentIp: px.host,
-          updatedAt: new Date().toISOString()
-        };
-      } else if (p.proxyId === proxyId) {
-        return {
-          ...p,
-          proxyId: '',
-          proxyAddress: 'Không dùng Proxy',
-          updatedAt: new Date().toISOString()
-        };
+    const proxy = this.proxies.find(item => item.id === proxyId);
+    if (!proxy || !proxy.enabled) return false;
+    this.profiles = this.profiles.map(profile => {
+      if (profileIds.includes(profile.id)) {
+        return { ...profile, proxyId, proxyAddress: `${proxy.host}:${proxy.port}`, updatedAt: new Date().toISOString() };
       }
-      return p;
+      if (profile.proxyId === proxyId) {
+        return { ...profile, proxyId: null, proxyAddress: 'Không dùng Proxy', updatedAt: new Date().toISOString() };
+      }
+      return profile;
     });
-
     this.persistProfiles();
     this.recalculateProxyStats();
     this.persistProxies();
-    this.addLogMessage('info', 'PROXY_MANAGER', `Cập nhật danh sách profile cho Proxy ${px.ipPort}`);
     return true;
   }
 
-  async deleteProxies(ids: string[]): Promise<boolean> {
-    this.proxies = this.proxies.filter(p => !ids.includes(p.id));
+  async unassignProxyFromProfiles(profileIds: string[]): Promise<boolean> {
+    this.profiles = this.profiles.map(profile => profileIds.includes(profile.id) ? {
+      ...profile,
+      proxyId: null,
+      proxyAddress: 'Không dùng Proxy',
+      updatedAt: new Date().toISOString()
+    } : profile);
+    this.persistProfiles();
+    this.recalculateProxyStats();
     this.persistProxies();
-    this.addLogMessage('warn', 'PROXY_MANAGER', `Đã xóa ${ids.length} Proxy khỏi danh sách.`);
+    return true;
+  }
+
+  async getProfileProxyState(profileId: string): Promise<ProfileProxyState> {
+    const profile = this.profiles.find(item => item.id === profileId);
+    return {
+      profileId,
+      proxyId: profile?.proxyId || null,
+      mode: profile?.proxyId ? 'proxy' : 'direct',
+      state: 'ready',
+      resolvedRule: profile?.proxyId ? 'MOCK PROXY' : 'DIRECT',
+      updatedAt: new Date().toISOString()
+    };
+  }
+
+  async refreshProfileProxy(profileId: string): Promise<ProfileProxyState> {
+    return this.getProfileProxyState(profileId);
+  }
+
+  async getProxyStorageInfo(): Promise<ProxyStorageInfo> {
+    return {
+      schemaVersion: 2,
+      proxyCount: this.proxies.length,
+      assignedProfileCount: this.profiles.filter(profile => Boolean(profile.proxyId)).length,
+      secretFileExists: false,
+      encryptionAvailable: false
+    };
+  }
+
+  async addSingleProxy(proxyData: ProxyCreateInput): Promise<ProxyItem> {
+    return this.createProxy(proxyData);
+  }
+
+  async addProxiesBatch(items: ProxyImportItem[]): Promise<ProxyItem[]> {
+    return this.importProxies(items);
+  }
+
+  async deleteProxies(ids: string[]): Promise<boolean> {
+    for (const id of ids) await this.deleteProxy(id);
     return true;
   }
 
@@ -1360,24 +1425,94 @@ export class ElectronPreloadBridge implements AppBridge {
     return null;
   }
 
-  // Proxies, Batches, Logs, Settings (Lazy Mock Fallback)
+  // Real Proxy Manager - native Electron bridge only
+  private requireProxyBridge() {
+    const bridge = this.bridge;
+    if (!bridge?.listProxies) {
+      throw new Error('Electron Proxy Manager IPC không khả dụng.');
+    }
+    return bridge;
+  }
+
   async listProxies(): Promise<ProxyItem[]> {
-    return this.mockFallback.listProxies();
+    return this.requireProxyBridge().listProxies();
   }
-  async testProxy(proxyId: string): Promise<ProxyItem> {
-    return this.mockFallback.testProxy(proxyId);
+  async getProxy(proxyId: string): Promise<ProxyItem | null> {
+    return this.requireProxyBridge().getProxy(proxyId);
   }
-  async testAllProxies(): Promise<ProxyItem[]> {
-    return this.mockFallback.testAllProxies ? this.mockFallback.testAllProxies() : [];
+  async createProxy(input: ProxyCreateInput): Promise<ProxyItem> {
+    return this.requireProxyBridge().createProxy(input);
   }
+  async updateProxy(proxyId: string, changes: ProxyUpdateInput): Promise<ProxyItem> {
+    return this.requireProxyBridge().updateProxy(proxyId, changes);
+  }
+  async deleteProxy(proxyId: string): Promise<{ deleted: boolean; affectedProfileIds: string[] }> {
+    return this.requireProxyBridge().deleteProxy(proxyId);
+  }
+  async importProxies(items: ProxyImportItem[]): Promise<ProxyItem[]> {
+    return this.requireProxyBridge().importProxies(items);
+  }
+  async testProxy(proxyId: string): Promise<ProxyTestResult> {
+    return this.requireProxyBridge().testProxy(proxyId);
+  }
+  async testManyProxies(proxyIds: string[]): Promise<ProxyTestResult[]> {
+    return this.requireProxyBridge().testManyProxies(proxyIds);
+  }
+  private ensureProxyAssignmentApplied(result: { states?: ProfileProxyState[] }) {
+    const failures = (result.states || []).filter(state => state.state === 'error');
+    if (failures.length > 0) {
+      const firstMessage = failures[0].error || 'Không thể áp dụng cấu hình proxy vào session profile.';
+      throw new Error(
+        `Đã lưu gán proxy nhưng ${failures.length} profile chưa áp dụng được cấu hình mạng: ${firstMessage}`
+      );
+    }
+  }
+
   async assignProxy(profileIds: string[], proxyId: string): Promise<boolean> {
-    return this.mockFallback.assignProxy(profileIds, proxyId);
+    const result = await this.requireProxyBridge().assignProxyToProfiles(profileIds, proxyId);
+    this.ensureProxyAssignmentApplied(result);
+    return true;
   }
-  async addProxiesBatch(lines: string[]): Promise<ProxyItem[]> {
-    return this.mockFallback.addProxiesBatch ? this.mockFallback.addProxiesBatch(lines) : [];
+  async assignProxyToProfiles(profileIds: string[], proxyId: string): Promise<boolean> {
+    const result = await this.requireProxyBridge().assignProxyToProfiles(profileIds, proxyId);
+    this.ensureProxyAssignmentApplied(result);
+    return true;
+  }
+
+  async assignProxiesOneToOne(
+    profileIds: string[],
+    proxyIds: string[]
+  ): Promise<ProxyOneToOneAssignmentResult> {
+    return this.requireProxyBridge().assignProxiesOneToOne(profileIds, proxyIds);
+  }
+  async assignProfilesToProxy(proxyId: string, profileIds: string[]): Promise<boolean> {
+    const result = await this.requireProxyBridge().replaceProfilesForProxy(proxyId, profileIds);
+    this.ensureProxyAssignmentApplied(result);
+    return true;
+  }
+  async unassignProxyFromProfiles(profileIds: string[]): Promise<boolean> {
+    const result = await this.requireProxyBridge().unassignProxyFromProfiles(profileIds);
+    this.ensureProxyAssignmentApplied(result);
+    return true;
+  }
+  async getProfileProxyState(profileId: string): Promise<ProfileProxyState> {
+    return this.requireProxyBridge().getProfileProxyState(profileId);
+  }
+  async refreshProfileProxy(profileId: string): Promise<ProfileProxyState> {
+    return this.requireProxyBridge().refreshProfileProxy(profileId);
+  }
+  async getProxyStorageInfo(): Promise<ProxyStorageInfo> {
+    return this.requireProxyBridge().getProxyStorageInfo();
+  }
+  async addSingleProxy(input: ProxyCreateInput): Promise<ProxyItem> {
+    return this.createProxy(input);
+  }
+  async addProxiesBatch(items: ProxyImportItem[]): Promise<ProxyItem[]> {
+    return this.importProxies(items);
   }
   async deleteProxies(ids: string[]): Promise<boolean> {
-    return this.mockFallback.deleteProxies ? this.mockFallback.deleteProxies(ids) : true;
+    for (const id of ids) await this.deleteProxy(id);
+    return true;
   }
 
   async getBatches(): Promise<BatchTask[]> {
@@ -1439,6 +1574,15 @@ export class ElectronPreloadBridge implements AppBridge {
   }
   onMiniBrowserStatusChanged(callback: (status: MiniBrowserStatus) => void): () => void {
     return this.requireMiniBrowserBridge().onMiniBrowserStatusChanged(callback);
+  }
+  onProxiesChanged(callback: (proxies: ProxyItem[]) => void): () => void {
+    return this.requireProxyBridge().onProxiesChanged(callback);
+  }
+  onProxyTestStatusChanged(callback: (result: ProxyTestResult) => void): () => void {
+    return this.requireProxyBridge().onProxyTestStatusChanged(callback);
+  }
+  onProfileProxyStateChanged(callback: (state: ProfileProxyState) => void): () => void {
+    return this.requireProxyBridge().onProfileProxyStateChanged(callback);
   }
 }
 

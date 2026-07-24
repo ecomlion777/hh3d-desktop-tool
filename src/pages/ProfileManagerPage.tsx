@@ -4,7 +4,7 @@
 
 import React from 'react';
 import { ProfileManagerView } from '../components/views/ProfileManagerView';
-import { Profile, GroupItem, ProxyItem } from '../types';
+import { Profile, GroupItem, ProxyItem, ProfileProxyState, ProxyImportItem } from '../types';
 import { MiniBrowserStatus } from '../types/electron';
 
 interface ProfileManagerPageProps {
@@ -30,9 +30,11 @@ interface ProfileManagerPageProps {
   onUpdateProfile: (id: string, updatedData: Partial<Profile>) => Promise<Profile>;
   onAssignGroupForSelected: (ids: string[], groupName: string) => Promise<void>;
   onAssignProxyForSelected: (ids: string[], proxyId: string) => Promise<void>;
+  onQuickImportAndAssignProxies: (profileIds: string[], proxyItems: ProxyImportItem[]) => Promise<unknown>;
   onToggleModulesForSelected: (ids: string[], enabledModules: string[]) => Promise<void>;
   onImportProfilesFromJSON: (importedProfiles: Partial<Profile>[]) => Promise<void>;
   miniBrowserStatuses?: Record<string, MiniBrowserStatus>;
+  profileProxyStates?: Record<string, ProfileProxyState>;
   onSelectionChange?: (selectedIds: string[]) => void;
 }
 

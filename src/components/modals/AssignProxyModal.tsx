@@ -1,10 +1,10 @@
 /**
- * AssignProxyModal - Assign proxy to selected profiles
+ * AssignProxyModal - Assign one enabled proxy (or Direct mode) to selected profiles.
  */
 
-import React, { useEffect, useState } from 'react';
-import { X, Network, CheckCircle2 } from 'lucide-react';
-import { ProxyItem } from '../../types';
+import React, { useEffect, useMemo, useState } from 'react';
+import { AlertTriangle, CheckCircle2, Network, X } from 'lucide-react';
+import type { ProxyItem } from '../../types';
 
 interface AssignProxyModalProps {
   isOpen: boolean;
@@ -21,74 +21,116 @@ export const AssignProxyModal: React.FC<AssignProxyModalProps> = ({
   proxies,
   onSubmit
 }) => {
-  const [selectedProxyId, setSelectedProxyId] = useState(proxies[0]?.id || '');
-
+  const enabledProxies = useMemo(
+    () => proxies.filter(proxy => proxy.enabled),
+    [proxies]
+  );
+  const [selectedProxyId, setSelectedProxyId] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   useEffect(() => {
-    if (isOpen && !proxies.some(proxy => proxy.id === selectedProxyId)) {
-      setSelectedProxyId(proxies[0]?.id || '');
+    if (!isOpen) return;
+    setErrorMsg(null);
+    setIsSubmitting(false);
+    if (selectedProxyId && !enabledProxies.some(proxy => proxy.id === selectedProxyId)) {
+      setSelectedProxyId('');
     }
-  }, [isOpen, proxies, selectedProxyId]);
+  }, [isOpen, enabledProxies, selectedProxyId]);
+
+  const handleSubmit = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (isSubmitting) return;
+
+    try {
+      setIsSubmitting(true);
+      setErrorMsg(null);
+      await onSubmit(selectedProxyId);
+      onClose();
+    } catch (error) {
+      setErrorMsg(error instanceof Error ? error.message : String(error));
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
 
   if (!isOpen) return null;
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    await onSubmit(selectedProxyId);
-    onClose();
-  };
-
   return (
-    <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200 select-none">
-      <div className="bg-slate-900 border border-slate-700 rounded-lg shadow-2xl w-full max-w-sm overflow-hidden text-slate-200">
-        
-        {/* Header */}
-        <div className="bg-slate-950 px-4 py-3 border-b border-slate-800 flex items-center justify-between">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm animate-in fade-in duration-200 select-none">
+      <div className="w-full max-w-sm overflow-hidden rounded-lg border border-slate-700 bg-slate-900 text-slate-200 shadow-2xl">
+        <div className="flex items-center justify-between border-b border-slate-800 bg-slate-950 px-4 py-3">
           <div className="flex items-center space-x-2">
-            <Network className="w-4 h-4 text-cyan-400" />
-            <h3 className="font-bold text-sm text-slate-100">Gán Proxy Hàng Loạt</h3>
+            <Network className="h-4 w-4 text-cyan-400" />
+            <h3 className="text-sm font-bold text-slate-100">Gán Proxy Hàng Loạt</h3>
           </div>
           <button
+            type="button"
             onClick={onClose}
-            className="p-1 text-slate-400 hover:text-white hover:bg-slate-800 rounded transition"
+            disabled={isSubmitting}
+            className="rounded p-1 text-slate-400 transition hover:bg-slate-800 hover:text-white disabled:opacity-50"
           >
-            <X className="w-4 h-4" />
+            <X className="h-4 w-4" />
           </button>
         </div>
 
-        {/* Content */}
-        <form onSubmit={handleSubmit} className="p-4 space-y-4 text-xs">
+        <form onSubmit={handleSubmit} className="space-y-4 p-4 text-xs">
           <p className="text-slate-300">
-            Chọn proxy để gán cho <span className="text-cyan-400 font-bold">{selectedCount}</span> profile đã chọn:
+            Chọn cấu hình mạng cho <span className="font-bold text-cyan-400">{selectedCount}</span> profile đã chọn.
           </p>
 
           <div>
-            <label className="block text-slate-400 font-medium mb-1">Chọn Proxy</label>
+            <label className="mb-1 block font-medium text-slate-400">Chọn Proxy</label>
             <select
               value={selectedProxyId}
-              onChange={e => setSelectedProxyId(e.target.value)}
-              className="w-full bg-slate-950 border border-slate-800 rounded px-3 py-2 text-slate-200 focus:outline-none focus:border-cyan-500 font-mono"
+              onChange={event => setSelectedProxyId(event.target.value)}
+              disabled={isSubmitting}
+              className="w-full rounded border border-slate-800 bg-slate-950 px-3 py-2 font-mono text-slate-200 outline-none focus:border-cyan-500 disabled:opacity-60"
             >
-              {proxies.map(px => (
-                <option key={px.id} value={px.id}>{px.name} ({px.ipPort})</option>
+              <option value="">Không dùng Proxy (Direct)</option>
+              {enabledProxies.map(proxy => (
+                <option key={proxy.id} value={proxy.id}>
+                  {proxy.name} ({proxy.protocol}://{proxy.host}:{proxy.port})
+                </option>
               ))}
             </select>
           </div>
 
-          <div className="pt-2 flex justify-end space-x-2">
+          {selectedProxyId && (
+            <div className="flex gap-2 rounded border border-amber-900/70 bg-amber-950/40 p-2 text-[11px] text-amber-200">
+              <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+              <span>Nếu Mini Browser đang mở, ứng dụng sẽ đóng cửa sổ đó trước khi đổi cấu hình mạng và sẽ không tự mở lại.</span>
+            </div>
+          )}
+
+          {enabledProxies.length === 0 && (
+            <p className="rounded border border-slate-700 bg-slate-950 p-2 text-[11px] text-slate-400">
+              Chưa có proxy đang bật. Bạn vẫn có thể chọn Direct để bỏ gán proxy.
+            </p>
+          )}
+
+          {errorMsg && (
+            <div className="rounded border border-rose-800 bg-rose-950/60 p-2 text-rose-200">
+              {errorMsg}
+            </div>
+          )}
+
+          <div className="flex justify-end space-x-2 pt-2">
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded font-medium transition"
+              disabled={isSubmitting}
+              className="rounded bg-slate-800 px-4 py-2 font-medium text-slate-300 transition hover:bg-slate-700 disabled:opacity-50"
             >
               Hủy
             </button>
             <button
               type="submit"
-              className="px-4 py-2 bg-cyan-600 hover:bg-cyan-500 text-white rounded font-medium transition flex items-center gap-1.5"
+              disabled={isSubmitting || selectedCount <= 0}
+              className="flex items-center gap-1.5 rounded bg-cyan-600 px-4 py-2 font-medium text-white transition hover:bg-cyan-500 disabled:opacity-50"
             >
-              <CheckCircle2 className="w-4 h-4" />
-              <span>Gán Proxy</span>
+              <CheckCircle2 className="h-4 w-4" />
+              <span>{isSubmitting ? 'Đang áp dụng...' : 'Gán Proxy'}</span>
             </button>
           </div>
         </form>

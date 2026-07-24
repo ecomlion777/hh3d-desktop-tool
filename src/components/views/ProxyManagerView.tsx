@@ -1,37 +1,35 @@
-/**
- * ProxyManagerView - Complete Proxy Management Interface
- */
-
-import React, { useState, useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
-  ShieldCheck,
-  Plus,
-  RotateCw,
-  Trash2,
-  CheckCircle2,
   AlertTriangle,
-  Globe,
-  Search,
-  Users,
-  Eye,
-  EyeOff,
+  CheckCircle2,
   Clock,
-  HelpCircle,
+  Edit3,
+  KeyRound,
   Loader2,
-  Key,
-  Network
+  Network,
+  Plus,
+  Power,
+  RotateCw,
+  Search,
+  ShieldCheck,
+  Trash2,
+  Users,
+  X
 } from 'lucide-react';
-import { ProxyItem, Profile } from '../../types';
+import type { Profile, ProxyItem, ProxyTestResult } from '../../types';
 import { AssignProfilesToProxyModal } from '../modals/AssignProfilesToProxyModal';
 
 interface ProxyManagerViewProps {
   proxies: ProxyItem[];
   profiles: Profile[];
-  onTestProxy: (id: string) => void;
-  onTestAllProxies: () => void;
+  onTestProxy: (id: string) => Promise<ProxyTestResult>;
+  onTestAllProxies: () => Promise<ProxyTestResult[]>;
   onOpenAddProxyModal: () => void;
-  onDeleteProxies: (ids: string[]) => void;
+  onEditProxy: (proxy: ProxyItem) => void;
+  onDeleteProxies: (ids: string[]) => Promise<void>;
+  onToggleEnabled: (proxy: ProxyItem) => Promise<void>;
   onAssignProfilesToProxy: (proxyId: string, profileIds: string[]) => Promise<void>;
+  onError: (message: string) => void;
 }
 
 export const ProxyManagerView: React.FC<ProxyManagerViewProps> = ({
@@ -40,460 +38,190 @@ export const ProxyManagerView: React.FC<ProxyManagerViewProps> = ({
   onTestProxy,
   onTestAllProxies,
   onOpenAddProxyModal,
+  onEditProxy,
   onDeleteProxies,
-  onAssignProfilesToProxy
+  onToggleEnabled,
+  onAssignProfilesToProxy,
+  onError
 }) => {
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [filterText, setFilterText] = useState('');
-  const [statusFilter, setStatusFilter] = useState<'all' | 'online' | 'slow' | 'offline' | 'unknown' | 'warning'>('all');
-  
-  // State for toggling password visibility per proxy
-  const [visiblePasswordIds, setVisiblePasswordIds] = useState<Record<string, boolean>>({});
-
-  // State for AssignProfilesToProxyModal
+  const [testingIds, setTestingIds] = useState<Set<string>>(new Set());
+  const [isTestingAll, setIsTestingAll] = useState(false);
   const [assignModalProxy, setAssignModalProxy] = useState<ProxyItem | null>(null);
+  const [deleteCandidateIds, setDeleteCandidateIds] = useState<string[]>([]);
+  const [isDeleting, setIsDeleting] = useState(false);
 
-  const togglePasswordVisibility = (proxyId: string) => {
-    setVisiblePasswordIds(prev => ({
-      ...prev,
-      [proxyId]: !prev[proxyId]
-    }));
-  };
-
-  // Compute active running profiles per proxy
-  const activeRunningCountsMap = useMemo(() => {
-    const map: Record<string, number> = {};
-    profiles.forEach(p => {
-      if (p.proxyId && p.status === 'running') {
-        map[p.proxyId] = (map[p.proxyId] || 0) + 1;
-      }
-    });
-    return map;
-  }, [profiles]);
-
-  // Compute total profiles per proxy
-  const totalAssignedCountsMap = useMemo(() => {
-    const map: Record<string, number> = {};
-    profiles.forEach(p => {
-      if (p.proxyId) {
-        map[p.proxyId] = (map[p.proxyId] || 0) + 1;
-      }
-    });
-    return map;
-  }, [profiles]);
-
-  // Status counts for filter pills
-  const counts = useMemo(() => {
-    let online = 0;
-    let slow = 0;
-    let offline = 0;
-    let unknown = 0;
-    let warning = 0;
-
-    proxies.forEach(px => {
-      const activeRunningCount = activeRunningCountsMap[px.id] || 0;
-      if (activeRunningCount > 1) {
-        warning++;
-      }
-
-      if (px.status === 'online' || (px.status === 'active' && px.latencyMs > 0 && px.latencyMs < 150)) {
-        online++;
-      } else if (px.status === 'slow' || (px.status === 'active' && px.latencyMs >= 150)) {
-        slow++;
-      } else if (px.status === 'offline' || px.status === 'error') {
-        offline++;
-      } else if (px.status === 'checking' || px.status === 'testing') {
-        // counted in checking
-      } else {
-        unknown++;
-      }
-    });
-
-    return { online, slow, offline, unknown, warning };
-  }, [proxies, activeRunningCountsMap]);
-
-  // Filter proxies
   const filtered = useMemo(() => {
-    return proxies.filter(px => {
-      // 1. Text filter
-      if (filterText.trim()) {
-        const q = filterText.toLowerCase();
-        const matchesName = px.name?.toLowerCase().includes(q);
-        const matchesIp = px.ipPort?.toLowerCase().includes(q) || px.host?.toLowerCase().includes(q);
-        const matchesLoc = px.location?.toLowerCase().includes(q);
-        const matchesUser = px.username?.toLowerCase().includes(q);
-        if (!matchesName && !matchesIp && !matchesLoc && !matchesUser) return false;
-      }
+    const query = filterText.trim().toLowerCase();
+    if (!query) return proxies;
+    return proxies.filter(proxy => [
+      proxy.name,
+      proxy.protocol,
+      proxy.host,
+      String(proxy.port),
+      proxy.maskedUsername || '',
+      proxy.publicIp || ''
+    ].some(value => value.toLowerCase().includes(query)));
+  }, [proxies, filterText]);
 
-      // 2. Status filter
-      if (statusFilter === 'all') return true;
+  const allSelected = filtered.length > 0 && filtered.every(proxy => selectedIds.includes(proxy.id));
+  const deleteCandidates = useMemo(
+    () => proxies.filter(proxy => deleteCandidateIds.includes(proxy.id)),
+    [deleteCandidateIds, proxies]
+  );
+  const affectedProfileCount = useMemo(
+    () => deleteCandidates.reduce((total, proxy) => total + (proxy.assignedProfileCount || 0), 0),
+    [deleteCandidates]
+  );
 
-      const activeRunningCount = activeRunningCountsMap[px.id] || 0;
-      if (statusFilter === 'warning') {
-        return activeRunningCount > 1;
-      }
-
-      if (statusFilter === 'online') {
-        return px.status === 'online' || (px.status === 'active' && px.latencyMs > 0 && px.latencyMs < 150);
-      }
-      if (statusFilter === 'slow') {
-        return px.status === 'slow' || (px.status === 'active' && px.latencyMs >= 150);
-      }
-      if (statusFilter === 'offline') {
-        return px.status === 'offline' || px.status === 'error';
-      }
-      if (statusFilter === 'unknown') {
-        return px.status === 'unknown' || (px.status !== 'online' && px.status !== 'active' && px.status !== 'slow' && px.status !== 'offline' && px.status !== 'error' && px.status !== 'checking' && px.status !== 'testing');
-      }
-
-      return true;
-    });
-  }, [proxies, filterText, statusFilter, activeRunningCountsMap]);
-
-  const isAllSelected = filtered.length > 0 && filtered.every(px => selectedIds.includes(px.id));
-
-  const toggleSelectAll = () => {
-    if (isAllSelected) {
-      setSelectedIds([]);
-    } else {
-      setSelectedIds(filtered.map(px => px.id));
+  const handleTest = async (proxyId: string) => {
+    try {
+      setTestingIds(previous => new Set(previous).add(proxyId));
+      await onTestProxy(proxyId);
+    } catch (error) {
+      onError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setTestingIds(previous => {
+        const next = new Set(previous);
+        next.delete(proxyId);
+        return next;
+      });
     }
   };
 
-  const toggleRow = (id: string) => {
-    setSelectedIds(prev => prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]);
+  const handleTestAll = async () => {
+    try {
+      setIsTestingAll(true);
+      await onTestAllProxies();
+    } catch (error) {
+      onError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setIsTestingAll(false);
+    }
+  };
+
+  const confirmDelete = async () => {
+    if (deleteCandidateIds.length === 0 || isDeleting) return;
+    try {
+      setIsDeleting(true);
+      await onDeleteProxies(deleteCandidateIds);
+      setSelectedIds(previous => previous.filter(id => !deleteCandidateIds.includes(id)));
+      setDeleteCandidateIds([]);
+    } catch (error) {
+      onError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
+  const testBadge = (proxy: ProxyItem) => {
+    const testing = testingIds.has(proxy.id) || proxy.testState === 'testing';
+    if (testing) return <span className="inline-flex items-center gap-1 rounded border border-cyan-800 bg-cyan-950 px-2 py-0.5 text-cyan-300"><Loader2 className="h-3 w-3 animate-spin" /> Đang test</span>;
+    if (proxy.testState === 'online') return <span className="inline-flex items-center gap-1 rounded border border-emerald-800 bg-emerald-950 px-2 py-0.5 text-emerald-300"><CheckCircle2 className="h-3 w-3" /> Online</span>;
+    if (proxy.testState === 'timeout') return <span className="inline-flex items-center gap-1 rounded border border-amber-800 bg-amber-950 px-2 py-0.5 text-amber-300"><Clock className="h-3 w-3" /> Timeout</span>;
+    if (['offline', 'auth_error', 'configuration_error'].includes(proxy.testState)) return <span className="inline-flex items-center gap-1 rounded border border-rose-800 bg-rose-950 px-2 py-0.5 text-rose-300"><AlertTriangle className="h-3 w-3" /> {proxy.testState}</span>;
+    return <span className="rounded border border-slate-700 bg-slate-800 px-2 py-0.5 text-slate-400">Chưa test</span>;
   };
 
   return (
-    <div id="view-proxy-manager" className="flex flex-col h-full bg-slate-900 text-slate-200 overflow-hidden select-none">
-      
-      {/* Top Header Controls */}
-      <div className="p-3 bg-slate-950 border-b border-slate-800 flex flex-wrap items-center justify-between gap-3 shrink-0">
-        <div className="flex items-center space-x-3">
-          <div className="p-2 bg-amber-500/10 border border-amber-500/30 text-amber-400 rounded">
-            <ShieldCheck className="w-5 h-5" />
-          </div>
+    <div className="flex h-full flex-col overflow-hidden bg-slate-900 text-slate-200">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800 bg-slate-950 p-3">
+        <div className="flex items-center gap-3">
+          <div className="rounded border border-amber-500/30 bg-amber-500/10 p-2 text-amber-400"><ShieldCheck className="h-5 w-5" /></div>
           <div>
-            <h2 className="font-bold text-sm text-slate-100 flex items-center gap-2">
-              <span>Proxy Manager</span>
-              <span className="text-xs font-mono font-normal text-amber-400 bg-amber-950/60 border border-amber-800/60 px-2 py-0.5 rounded">
-                {proxies.length} Proxies Loaded
-              </span>
-            </h2>
-            <p className="text-xs text-slate-400">Quản lý, phân bổ IP độc lập và kiểm tra latency kết nối cho từng profile game</p>
+            <h2 className="text-sm font-bold">Proxy Manager <span className="ml-2 rounded bg-amber-950 px-2 py-0.5 font-mono text-xs text-amber-300">{proxies.length}</span></h2>
+            <p className="text-xs text-slate-400">Proxy thật theo persistent partition; proxy lỗi không tự chuyển sang Direct.</p>
           </div>
         </div>
-
-        {/* Action buttons */}
-        <div className="flex items-center space-x-2">
-          <button
-            onClick={onTestAllProxies}
-            className="px-3 py-1.5 bg-amber-600 hover:bg-amber-500 text-white rounded text-xs font-medium transition flex items-center gap-1.5 shadow-sm"
-          >
-            <RotateCw className="w-3.5 h-3.5" />
-            <span>Kiểm Tra Tốc Độ Tất Cả</span>
+        <div className="flex gap-2">
+          <button onClick={handleTestAll} disabled={isTestingAll || proxies.length === 0} className="flex items-center gap-1 rounded bg-amber-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-amber-500 disabled:opacity-50">
+            {isTestingAll ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RotateCw className="h-3.5 w-3.5" />} Test Tất Cả
           </button>
-
-          <button
-            onClick={onOpenAddProxyModal}
-            className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded text-xs font-medium transition flex items-center gap-1.5"
-          >
-            <Plus className="w-3.5 h-3.5 text-amber-400" />
-            <span>Thêm / Import Proxy</span>
-          </button>
-
-          {selectedIds.length > 0 && (
-            <button
-              onClick={() => {
-                if (confirm(`Bạn có chắc chắn muốn xóa ${selectedIds.length} proxy đã chọn?`)) {
-                  onDeleteProxies(selectedIds);
-                  setSelectedIds([]);
-                }
-              }}
-              className="px-3 py-1.5 bg-rose-950 hover:bg-rose-900 text-rose-200 border border-rose-800 rounded text-xs font-medium transition flex items-center gap-1.5"
-            >
-              <Trash2 className="w-3.5 h-3.5" />
-              <span>Xóa ({selectedIds.length})</span>
-            </button>
-          )}
+          <button onClick={onOpenAddProxyModal} className="flex items-center gap-1 rounded border border-slate-700 bg-slate-800 px-3 py-1.5 text-xs hover:bg-slate-700"><Plus className="h-3.5 w-3.5 text-amber-400" /> Thêm / Import</button>
+          {selectedIds.length > 0 && <button onClick={() => setDeleteCandidateIds(selectedIds)} className="flex items-center gap-1 rounded border border-rose-800 bg-rose-950 px-3 py-1.5 text-xs text-rose-200"><Trash2 className="h-3.5 w-3.5" /> Xóa ({selectedIds.length})</button>}
         </div>
       </div>
 
-      {/* Filter bar & status pills */}
-      <div className="p-3 bg-slate-900 border-b border-slate-800 flex flex-wrap items-center justify-between gap-3 text-xs">
-        <div className="flex items-center space-x-2">
-          <div className="relative w-64">
-            <Search className="w-3.5 h-3.5 absolute left-2.5 top-2.5 text-slate-500" />
-            <input
-              type="text"
-              value={filterText}
-              onChange={e => setFilterText(e.target.value)}
-              placeholder="Lọc IP, Port, Vị trí, User..."
-              className="w-full bg-slate-950 border border-slate-800 rounded pl-8 pr-3 py-1.5 text-slate-200 focus:outline-none focus:border-amber-500"
-            />
-          </div>
-
-          {/* Status Filter Buttons */}
-          <div className="flex items-center space-x-1 bg-slate-950 p-1 rounded border border-slate-800">
-            <button
-              onClick={() => setStatusFilter('all')}
-              className={`px-2.5 py-1 rounded text-[11px] font-medium transition ${
-                statusFilter === 'all' ? 'bg-slate-800 text-slate-100 font-bold' : 'text-slate-400 hover:text-slate-200'
-              }`}
-            >
-              Tất cả ({proxies.length})
-            </button>
-            <button
-              onClick={() => setStatusFilter('online')}
-              className={`px-2.5 py-1 rounded text-[11px] font-medium transition flex items-center gap-1 ${
-                statusFilter === 'online' ? 'bg-emerald-950 text-emerald-300 font-bold border border-emerald-800' : 'text-slate-400 hover:text-emerald-400'
-              }`}
-            >
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
-              Online ({counts.online})
-            </button>
-            <button
-              onClick={() => setStatusFilter('slow')}
-              className={`px-2.5 py-1 rounded text-[11px] font-medium transition flex items-center gap-1 ${
-                statusFilter === 'slow' ? 'bg-amber-950 text-amber-300 font-bold border border-amber-800' : 'text-slate-400 hover:text-amber-400'
-              }`}
-            >
-              <span className="w-1.5 h-1.5 rounded-full bg-amber-400"></span>
-              Slow ({counts.slow})
-            </button>
-            <button
-              onClick={() => setStatusFilter('offline')}
-              className={`px-2.5 py-1 rounded text-[11px] font-medium transition flex items-center gap-1 ${
-                statusFilter === 'offline' ? 'bg-rose-950 text-rose-300 font-bold border border-rose-800' : 'text-slate-400 hover:text-rose-400'
-              }`}
-            >
-              <span className="w-1.5 h-1.5 rounded-full bg-rose-400"></span>
-              Offline ({counts.offline})
-            </button>
-            <button
-              onClick={() => setStatusFilter('unknown')}
-              className={`px-2.5 py-1 rounded text-[11px] font-medium transition flex items-center gap-1 ${
-                statusFilter === 'unknown' ? 'bg-slate-800 text-slate-200 font-bold' : 'text-slate-400 hover:text-slate-200'
-              }`}
-            >
-              Chưa test ({counts.unknown})
-            </button>
-            {counts.warning > 0 && (
-              <button
-                onClick={() => setStatusFilter('warning')}
-                className={`px-2.5 py-1 rounded text-[11px] font-medium transition flex items-center gap-1 ${
-                  statusFilter === 'warning' ? 'bg-amber-950 text-amber-300 font-bold border border-amber-700' : 'text-amber-400 hover:bg-amber-950/40'
-                }`}
-              >
-                ⚠️ Trùng IP Running ({counts.warning})
-              </button>
-            )}
-          </div>
-        </div>
-
-        <div className="text-xs text-slate-400 font-mono">
-          Hiển thị: <strong className="text-amber-400">{filtered.length}</strong> / {proxies.length} Proxy
+      <div className="border-b border-slate-800 p-3">
+        <div className="relative max-w-md">
+          <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-slate-500" />
+          <input value={filterText} onChange={event => setFilterText(event.target.value)} placeholder="Tìm tên, host, protocol, IP..." className="w-full rounded border border-slate-800 bg-slate-950 py-1.5 pl-8 pr-3 text-xs outline-none focus:border-amber-500" />
         </div>
       </div>
 
-      {/* Table Content */}
-      <div className="flex-1 overflow-auto custom-scrollbar">
-        <table className="w-full text-left text-xs text-slate-300 border-collapse min-w-[1000px]">
-          <thead className="bg-slate-950 text-slate-400 uppercase tracking-wider sticky top-0 z-10 border-b border-slate-800 text-[11px]">
-            <tr>
-              <th className="p-3 w-10 text-center">
-                <input
-                  type="checkbox"
-                  checked={isAllSelected}
-                  onChange={toggleSelectAll}
-                  className="rounded border-slate-700 bg-slate-900 text-amber-600 focus:ring-0 w-3.5 h-3.5"
-                />
-              </th>
-              <th className="p-3 font-semibold">Tên Proxy</th>
-              <th className="p-3 font-mono">IP : Port</th>
-              <th className="p-3 font-mono">Giao Thức</th>
-              <th className="p-3">Trạng Thái</th>
-              <th className="p-3 font-mono">Ping (Latency)</th>
-              <th className="p-3">Vị Trí Vùng</th>
-              <th className="p-3 font-mono">Tài Khoản / Mật Khẩu</th>
-              <th className="p-3 font-mono text-center">Profile Gán</th>
-              <th className="p-3 text-center">Thao Tác</th>
+      <div className="flex-1 overflow-auto">
+        <table className="w-full min-w-[1280px] text-left text-xs">
+          <thead className="sticky top-0 z-10 bg-slate-950 text-[10px] uppercase text-slate-500">
+            <tr className="border-b border-slate-800">
+              <th className="p-3"><input type="checkbox" checked={allSelected} onChange={() => setSelectedIds(allSelected ? [] : filtered.map(proxy => proxy.id))} /></th>
+              <th className="p-3">Tên</th><th className="p-3">Protocol</th><th className="p-3">Endpoint</th><th className="p-3">Xác thực</th><th className="p-3">Profiles</th><th className="p-3">Test</th><th className="p-3">Public IP</th><th className="p-3">Latency</th><th className="p-3">Lần cuối</th><th className="p-3 text-center">Thao tác</th>
             </tr>
           </thead>
-
-          <tbody className="divide-y divide-slate-800/60 bg-slate-900/60 font-medium">
+          <tbody>
             {filtered.length === 0 ? (
-              <tr>
-                <td colSpan={10} className="p-8 text-center text-slate-500 text-xs">
-                  Không tìm thấy proxy phù hợp với bộ lọc
+              <tr><td colSpan={11} className="p-10 text-center text-slate-500">Chưa có proxy hoặc không tìm thấy kết quả phù hợp.</td></tr>
+            ) : filtered.map(proxy => (
+              <tr key={proxy.id} className={`border-b border-slate-800/80 hover:bg-slate-800/40 ${proxy.enabled ? '' : 'opacity-60'}`}>
+                <td className="p-3"><input type="checkbox" checked={selectedIds.includes(proxy.id)} onChange={() => setSelectedIds(previous => previous.includes(proxy.id) ? previous.filter(id => id !== proxy.id) : [...previous, proxy.id])} /></td>
+                <td className="p-3"><div className="font-semibold text-slate-100">{proxy.name}</div><div className="mt-0.5 text-[10px] text-slate-500">{proxy.enabled ? 'Enabled' : 'Disabled'}</div></td>
+                <td className="p-3"><span className="rounded border border-cyan-900 bg-cyan-950 px-2 py-0.5 font-mono text-cyan-300">{proxy.protocol.toUpperCase()}</span></td>
+                <td className="p-3 font-mono text-slate-300">{proxy.host}:{proxy.port}</td>
+                <td className="p-3">
+                  {proxy.hasCredentials ? <div className="flex items-center gap-1 text-emerald-300"><KeyRound className="h-3.5 w-3.5" /> Credentials saved {proxy.maskedUsername ? `(${proxy.maskedUsername})` : ''}</div> : proxy.authRequired ? <div className="flex items-center gap-1 text-rose-300"><AlertTriangle className="h-3.5 w-3.5" /> Credentials missing</div> : <span className="text-slate-400">Không xác thực</span>}
                 </td>
+                <td className="p-3"><button onClick={() => setAssignModalProxy(proxy)} className="inline-flex items-center gap-1 text-purple-300 hover:text-purple-200"><Users className="h-3.5 w-3.5" /> {proxy.assignedProfileCount || 0}</button></td>
+                <td className="p-3">{testBadge(proxy)}{proxy.testError && <div className="mt-1 max-w-[180px] truncate text-[10px] text-rose-300" title={proxy.testError}>{proxy.testError}</div>}</td>
+                <td className="p-3 font-mono text-emerald-300">{proxy.publicIp || '--'}</td>
+                <td className="p-3 font-mono">{proxy.latencyMs !== undefined ? `${proxy.latencyMs} ms` : '--'}</td>
+                <td className="p-3 text-slate-400">{proxy.lastCheckedAt ? new Date(proxy.lastCheckedAt).toLocaleString('vi-VN') : '--'}</td>
+                <td className="p-3"><div className="flex justify-center gap-1">
+                  <button title="Test" onClick={() => handleTest(proxy.id)} disabled={testingIds.has(proxy.id)} className="rounded border border-slate-700 bg-slate-800 p-1.5 hover:bg-slate-700 disabled:opacity-50"><RotateCw className="h-3.5 w-3.5 text-cyan-400" /></button>
+                  <button title="Sửa" onClick={() => onEditProxy(proxy)} className="rounded border border-slate-700 bg-slate-800 p-1.5 hover:bg-slate-700"><Edit3 className="h-3.5 w-3.5 text-amber-400" /></button>
+                  <button title={proxy.enabled ? 'Tắt proxy' : 'Bật proxy'} onClick={async () => { try { await onToggleEnabled(proxy); } catch (error) { onError(error instanceof Error ? error.message : String(error)); } }} className="rounded border border-slate-700 bg-slate-800 p-1.5 hover:bg-slate-700"><Power className={`h-3.5 w-3.5 ${proxy.enabled ? 'text-emerald-400' : 'text-rose-400'}`} /></button>
+                  <button title="Gán profile" onClick={() => setAssignModalProxy(proxy)} className="rounded border border-slate-700 bg-slate-800 p-1.5 hover:bg-slate-700"><Network className="h-3.5 w-3.5 text-purple-400" /></button>
+                  <button title="Xóa" onClick={() => setDeleteCandidateIds([proxy.id])} className="rounded border border-rose-900 bg-rose-950 p-1.5 hover:bg-rose-900"><Trash2 className="h-3.5 w-3.5 text-rose-300" /></button>
+                </div></td>
               </tr>
-            ) : (
-              filtered.map((px) => {
-                const assignedCount = totalAssignedCountsMap[px.id] || px.assignedProfilesCount || 0;
-                const activeRunningCount = activeRunningCountsMap[px.id] || px.activeRunningProfilesCount || 0;
-                const isWarningActive = activeRunningCount > 1;
-
-                const isPasswordVisible = visiblePasswordIds[px.id] || false;
-                const plainPassword = px.password || (px.passwordEncrypted ? 'secret_password' : '');
-
-                return (
-                  <tr 
-                    key={px.id} 
-                    className={`hover:bg-slate-800/80 transition ${
-                      isWarningActive ? 'bg-amber-950/20' : ''
-                    }`}
-                  >
-                    <td className="p-3 text-center">
-                      <input
-                        type="checkbox"
-                        checked={selectedIds.includes(px.id)}
-                        onChange={() => toggleRow(px.id)}
-                        className="rounded border-slate-700 bg-slate-900 text-amber-600 focus:ring-0 w-3.5 h-3.5"
-                      />
-                    </td>
-
-                    <td className="p-3">
-                      <div className="font-bold text-slate-100 flex items-center gap-1.5">
-                        <span>{px.name}</span>
-                        {isWarningActive && (
-                          <span 
-                            title={`Cảnh báo: Có ${activeRunningCount} profile đang chạy đồng thời trên proxy này!`}
-                            className="px-1.5 py-0.5 rounded text-[10px] bg-amber-950 text-amber-300 border border-amber-800 font-bold flex items-center gap-1 shrink-0"
-                          >
-                            <AlertTriangle className="w-3 h-3 text-amber-400" />
-                            <span>Trùng {activeRunningCount} Active IP</span>
-                          </span>
-                        )}
-                      </div>
-                    </td>
-
-                    <td className="p-3 font-mono text-amber-300 font-semibold">{px.ipPort || `${px.host}:${px.port}`}</td>
-                    <td className="p-3 font-mono text-slate-400 text-[11px]">{px.protocol}</td>
-
-                    {/* Status column with Unknown, Checking, Online, Slow, Offline */}
-                    <td className="p-3">
-                      {px.status === 'online' || (px.status === 'active' && px.latencyMs > 0 && px.latencyMs < 150) ? (
-                        <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] font-semibold bg-emerald-950 text-emerald-300 border border-emerald-800">
-                          <CheckCircle2 className="w-3 h-3 text-emerald-400" />
-                          <span>Online</span>
-                        </span>
-                      ) : px.status === 'slow' || (px.status === 'active' && px.latencyMs >= 150) ? (
-                        <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] font-semibold bg-amber-950 text-amber-300 border border-amber-800">
-                          <Clock className="w-3 h-3 text-amber-400" />
-                          <span>Slow</span>
-                        </span>
-                      ) : px.status === 'checking' || px.status === 'testing' ? (
-                        <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] font-semibold bg-cyan-950 text-cyan-300 border border-cyan-800 animate-pulse">
-                          <Loader2 className="w-3 h-3 text-cyan-400 animate-spin" />
-                          <span>Checking...</span>
-                        </span>
-                      ) : px.status === 'offline' || px.status === 'error' ? (
-                        <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] font-semibold bg-rose-950 text-rose-300 border border-rose-800">
-                          <AlertTriangle className="w-3 h-3 text-rose-400" />
-                          <span>Offline</span>
-                        </span>
-                      ) : (
-                        <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] font-semibold bg-slate-800 text-slate-400 border border-slate-700">
-                          <HelpCircle className="w-3 h-3 text-slate-500" />
-                          <span>Unknown</span>
-                        </span>
-                      )}
-                    </td>
-
-                    {/* Ping column */}
-                    <td className="p-3 font-mono font-bold">
-                      {px.status === 'checking' || px.status === 'testing' ? (
-                        <span className="text-cyan-400 text-[11px] italic">Đang đo...</span>
-                      ) : px.latencyMs > 0 || (px.ping && px.ping > 0) ? (
-                        <span className={(px.latencyMs || px.ping || 0) < 150 ? 'text-emerald-400' : 'text-amber-400'}>
-                          {px.latencyMs || px.ping} ms
-                        </span>
-                      ) : (
-                        <span className="text-slate-500">--</span>
-                      )}
-                    </td>
-
-                    <td className="p-3 text-slate-300">
-                      <div className="flex items-center gap-1.5">
-                        <Globe className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
-                        <span className="truncate max-w-[120px]">{px.location || 'Chưa định vị'}</span>
-                      </div>
-                    </td>
-
-                    {/* Username & Masked Password column */}
-                    <td className="p-3 font-mono text-[11px]">
-                      {px.username ? (
-                        <div className="flex items-center space-x-1.5 text-slate-300">
-                          <span className="text-slate-200">{px.username}</span>
-                          <span className="text-slate-600">:</span>
-                          <span className="text-amber-400 font-semibold">
-                            {isPasswordVisible ? (plainPassword || '••••••••') : '••••••••'}
-                          </span>
-                          <button
-                            type="button"
-                            onClick={() => togglePasswordVisibility(px.id)}
-                            className="p-0.5 text-slate-500 hover:text-slate-300 transition rounded"
-                            title={isPasswordVisible ? 'Ẩn mật khẩu' : 'Hiện mật khẩu'}
-                          >
-                            {isPasswordVisible ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
-                          </button>
-                        </div>
-                      ) : (
-                        <span className="text-slate-500 italic">Không có xác thực</span>
-                      )}
-                    </td>
-
-                    {/* Profile count & Assign action */}
-                    <td className="p-3 font-mono text-center">
-                      <button
-                        onClick={() => setAssignModalProxy(px)}
-                        className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded bg-slate-950 hover:bg-slate-800 border border-slate-800 text-slate-200 transition text-xs"
-                      >
-                        <Users className="w-3.5 h-3.5 text-amber-400" />
-                        <span><strong>{assignedCount}</strong> profiles</span>
-                        {activeRunningCount > 0 && (
-                          <span className="text-[10px] text-emerald-400 font-bold">({activeRunningCount} running)</span>
-                        )}
-                      </button>
-                    </td>
-
-                    {/* Actions column */}
-                    <td className="p-3 text-center">
-                      <div className="flex items-center justify-center space-x-1.5">
-                        <button
-                          onClick={() => onTestProxy(px.id)}
-                          className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded text-xs transition flex items-center gap-1"
-                        >
-                          <RotateCw className="w-3 h-3 text-amber-400" />
-                          <span>Test Speed</span>
-                        </button>
-
-                        <button
-                          onClick={() => setAssignModalProxy(px)}
-                          className="px-2.5 py-1 bg-amber-950 hover:bg-amber-900 text-amber-300 border border-amber-800 rounded text-xs transition flex items-center gap-1"
-                        >
-                          <Network className="w-3 h-3 text-amber-400" />
-                          <span>Gán Profile</span>
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                );
-              })
-            )}
+            ))}
           </tbody>
         </table>
       </div>
 
-      {/* Assign Profiles Modal */}
       <AssignProfilesToProxyModal
-        isOpen={!!assignModalProxy}
-        onClose={() => setAssignModalProxy(null)}
+        isOpen={Boolean(assignModalProxy)}
         proxy={assignModalProxy}
         profiles={profiles}
-        onSubmit={onAssignProfilesToProxy}
+        onClose={() => setAssignModalProxy(null)}
+        onSubmit={async (proxyId, profileIds) => {
+          try {
+            await onAssignProfilesToProxy(proxyId, profileIds);
+          } catch (error) {
+            onError(error instanceof Error ? error.message : String(error));
+            throw error;
+          }
+        }}
       />
+
+      {deleteCandidateIds.length > 0 && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-md overflow-hidden rounded-lg border border-rose-900 bg-slate-900 shadow-2xl">
+            <div className="flex items-center justify-between border-b border-slate-800 bg-slate-950 px-4 py-3">
+              <div className="flex items-center gap-2 text-rose-300"><AlertTriangle className="h-5 w-5" /><h3 className="text-sm font-bold">Xác nhận xóa proxy</h3></div>
+              <button onClick={() => setDeleteCandidateIds([])} disabled={isDeleting} className="rounded p-1 text-slate-400 hover:bg-slate-800 hover:text-white disabled:opacity-50"><X className="h-4 w-4" /></button>
+            </div>
+            <div className="space-y-3 p-4 text-xs text-slate-300">
+              <p>Bạn sắp xóa <strong className="text-rose-300">{deleteCandidateIds.length} proxy</strong>.</p>
+              <p>{affectedProfileCount > 0 ? `${affectedProfileCount} profile đang dùng các proxy này sẽ được chuyển về Direct.` : 'Không có profile nào đang được gán các proxy này.'}</p>
+              <p className="text-slate-400">Profile, cookie và session Mini Browser không bị xóa.</p>
+            </div>
+            <div className="flex justify-end gap-2 border-t border-slate-800 bg-slate-950 px-4 py-3">
+              <button onClick={() => setDeleteCandidateIds([])} disabled={isDeleting} className="rounded bg-slate-800 px-4 py-1.5 text-xs hover:bg-slate-700 disabled:opacity-50">Hủy</button>
+              <button onClick={confirmDelete} disabled={isDeleting} className="flex items-center gap-1.5 rounded bg-rose-700 px-4 py-1.5 text-xs font-semibold text-white hover:bg-rose-600 disabled:opacity-50">{isDeleting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />} Xóa proxy</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

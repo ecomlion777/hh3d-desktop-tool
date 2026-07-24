@@ -12,7 +12,13 @@ import {
   LogEntry,
   ActivityConfig,
   GeneralAppSettings,
-  SystemStats
+  SystemStats,
+  ProxyCreateInput,
+  ProxyUpdateInput,
+  ProxyImportItem,
+  ProxyTestResult,
+  ProfileProxyState,
+  ProxyOneToOneAssignmentResult
 } from '../types';
 import { MiniBrowserStatus } from '../types/electron';
 import { appBridge } from '../services/appBridgeService';
@@ -26,6 +32,7 @@ export function useAppBridge() {
   const [activityConfig, setActivityConfig] = useState<ActivityConfig | null>(null);
   const [generalSettings, setGeneralSettings] = useState<GeneralAppSettings | null>(null);
   const [miniBrowserStatuses, setMiniBrowserStatuses] = useState<Record<string, MiniBrowserStatus>>({});
+  const [profileProxyStates, setProfileProxyStates] = useState<Record<string, ProfileProxyState>>({});
   const [systemStats, setSystemStats] = useState<SystemStats>({
     cpuUsage: 20,
     ramUsageGb: 4.2,
@@ -98,12 +105,35 @@ export function useAppBridge() {
       }));
     }) : undefined;
 
+    const unsubProxies = appBridge.onProxiesChanged ? appBridge.onProxiesChanged(updatedProxies => {
+      setProxies(updatedProxies);
+    }) : undefined;
+
+    const unsubProxyTest = appBridge.onProxyTestStatusChanged ? appBridge.onProxyTestStatusChanged(result => {
+      setProxies(prev => prev.map(proxy => proxy.id === result.proxyId ? {
+        ...proxy,
+        testState: result.testState,
+        publicIp: result.publicIp,
+        latencyMs: result.latencyMs,
+        resolvedRule: result.resolvedRule,
+        lastCheckedAt: result.checkedAt,
+        testError: result.testError
+      } : proxy));
+    }) : undefined;
+
+    const unsubProfileProxy = appBridge.onProfileProxyStateChanged ? appBridge.onProfileProxyStateChanged(state => {
+      setProfileProxyStates(prev => ({ ...prev, [state.profileId]: state }));
+    }) : undefined;
+
     return () => {
       if (unsubProfiles) unsubProfiles();
       if (unsubBatches) unsubBatches();
       if (unsubLogs) unsubLogs();
       if (unsubStats) unsubStats();
       if (unsubMiniBrowser) unsubMiniBrowser();
+      if (unsubProxies) unsubProxies();
+      if (unsubProxyTest) unsubProxyTest();
+      if (unsubProfileProxy) unsubProfileProxy();
     };
   }, [refreshData]);
 
@@ -133,11 +163,6 @@ export function useAppBridge() {
     }
   };
 
-  const assignProxyForProfiles = async (ids: string[], proxyId: string) => {
-    await appBridge.assignProxy(ids, proxyId);
-    await refreshData();
-  };
-
   const toggleModulesForProfiles = async (ids: string[], enabledModules: string[]) => {
     if (appBridge.toggleModulesForProfiles) {
       await appBridge.toggleModulesForProfiles(ids, enabledModules);
@@ -164,48 +189,110 @@ export function useAppBridge() {
     return res;
   };
 
-  const testProxy = async (proxyId: string) => {
-    const px = await appBridge.testProxy(proxyId);
-    setProxies(prev => prev.map(p => p.id === proxyId ? px : p));
-    return px;
+  const testProxy = async (proxyId: string): Promise<ProxyTestResult> => {
+    const result = await appBridge.testProxy(proxyId);
+    setProxies(prev => prev.map(proxy => proxy.id === proxyId ? {
+      ...proxy,
+      testState: result.testState,
+      publicIp: result.publicIp,
+      latencyMs: result.latencyMs,
+      resolvedRule: result.resolvedRule,
+      lastCheckedAt: result.checkedAt,
+      testError: result.testError
+    } : proxy));
+    return result;
   };
 
   const testAllProxies = async () => {
-    if ((appBridge as any).testAllProxies) {
-      const updated = await (appBridge as any).testAllProxies();
-      setProxies(updated);
-    }
+    if (!appBridge.testManyProxies) return [];
+    const results = await appBridge.testManyProxies(proxies.map(proxy => proxy.id));
+    const updated = await appBridge.listProxies();
+    setProxies(updated);
+    return results;
   };
 
-  const addSingleProxy = async (proxyData: Partial<ProxyItem>) => {
-    if (appBridge.addSingleProxy) {
-      await appBridge.addSingleProxy(proxyData);
-      const pxList = await appBridge.listProxies();
-      setProxies(pxList);
-    }
+  const createProxy = async (input: ProxyCreateInput) => {
+    if (!appBridge.createProxy) throw new Error('API tạo proxy không khả dụng.');
+    const created = await appBridge.createProxy(input);
+    setProxies(await appBridge.listProxies());
+    return created;
   };
 
-  const addProxiesBatch = async (lines: string[]) => {
-    if (appBridge.addProxiesBatch) {
-      await appBridge.addProxiesBatch(lines);
-      const pxList = await appBridge.listProxies();
-      setProxies(pxList);
+  const updateProxy = async (proxyId: string, changes: ProxyUpdateInput) => {
+    if (!appBridge.updateProxy) throw new Error('API cập nhật proxy không khả dụng.');
+    const updated = await appBridge.updateProxy(proxyId, changes);
+    await refreshData();
+    return updated;
+  };
+
+  const importProxyItems = async (items: ProxyImportItem[]) => {
+    if (!appBridge.importProxies) throw new Error('API import proxy không khả dụng.');
+    const created = await appBridge.importProxies(items);
+    setProxies(await appBridge.listProxies());
+    return created;
+  };
+
+  const addSingleProxy = async (input: ProxyCreateInput) => createProxy(input);
+  const addProxiesBatch = async (items: ProxyImportItem[]) => importProxyItems(items);
+
+  const assignProxiesOneToOne = async (
+    profileIds: string[],
+    proxyIds: string[]
+  ): Promise<ProxyOneToOneAssignmentResult | boolean> => {
+    if (!appBridge.assignProxiesOneToOne) {
+      throw new Error('API gán proxy 1-1 không khả dụng.');
+    }
+    try {
+      return await appBridge.assignProxiesOneToOne(profileIds, proxyIds);
+    } finally {
+      await refreshData();
     }
   };
 
   const assignProfilesToProxy = async (proxyId: string, profileIds: string[]) => {
-    if (appBridge.assignProfilesToProxy) {
+    if (!appBridge.assignProfilesToProxy) throw new Error('API gán profile cho proxy không khả dụng.');
+    try {
       await appBridge.assignProfilesToProxy(proxyId, profileIds);
+    } finally {
+      await refreshData();
+    }
+  };
+
+  const assignProxyForProfiles = async (profileIds: string[], proxyId: string) => {
+    try {
+      if (!proxyId) {
+        if (!appBridge.unassignProxyFromProfiles) throw new Error('API bỏ gán proxy không khả dụng.');
+        await appBridge.unassignProxyFromProfiles(profileIds);
+      } else if (appBridge.assignProxyToProfiles) {
+        await appBridge.assignProxyToProfiles(profileIds, proxyId);
+      } else {
+        await appBridge.assignProxy(profileIds, proxyId);
+      }
+    } finally {
+      await refreshData();
+    }
+  };
+
+  const unassignProxyFromProfiles = async (profileIds: string[]) => {
+    if (!appBridge.unassignProxyFromProfiles) throw new Error('API bỏ gán proxy không khả dụng.');
+    try {
+      await appBridge.unassignProxyFromProfiles(profileIds);
+    } finally {
       await refreshData();
     }
   };
 
   const deleteProxies = async (ids: string[]) => {
-    if (appBridge.deleteProxies) {
-      await appBridge.deleteProxies(ids);
-      const pxList = await appBridge.listProxies();
-      setProxies(pxList);
-    }
+    if (!appBridge.deleteProxy) throw new Error('API xóa proxy không khả dụng.');
+    for (const id of ids) await appBridge.deleteProxy(id);
+    await refreshData();
+  };
+
+  const refreshProfileProxy = async (profileId: string) => {
+    if (!appBridge.refreshProfileProxy) throw new Error('API refresh proxy profile không khả dụng.');
+    const state = await appBridge.refreshProfileProxy(profileId);
+    setProfileProxyStates(prev => ({ ...prev, [profileId]: state }));
+    return state;
   };
 
   const runGroup = async (groupName: string) => {
@@ -382,6 +469,7 @@ export function useAppBridge() {
     activityConfig,
     generalSettings,
     miniBrowserStatuses,
+    profileProxyStates,
     systemStats,
     refreshData,
     createProfile,
@@ -400,9 +488,15 @@ export function useAppBridge() {
     clearMiniBrowserSession,
     testProxy,
     testAllProxies,
+    createProxy,
+    updateProxy,
+    importProxyItems,
     addSingleProxy,
     addProxiesBatch,
     assignProfilesToProxy,
+    assignProxiesOneToOne,
+    unassignProxyFromProfiles,
+    refreshProfileProxy,
     deleteProxies,
     runGroup,
     stopGroup,

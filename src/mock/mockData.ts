@@ -39,53 +39,31 @@ const ACTIVITIES_LIST = [
 
 export function generateInitialProxies(): ProxyItem[] {
   const proxies: ProxyItem[] = [];
-  const locations = ['Việt Nam (Hà Nội)', 'Việt Nam (TP.HCM)', 'Singapore', 'Japan (Tokyo)', 'Hong Kong', 'USA (West)'];
-
-  for (let i = 1; i <= 40; i++) {
-    const protocol: 'HTTP' | 'HTTPS' | 'SOCKS5' = i % 3 === 0 ? 'SOCKS5' : i % 2 === 0 ? 'HTTPS' : 'HTTP';
-    const location = locations[(i - 1) % locations.length];
-    const host = `103.142.${10 + (i % 20)}.${100 + i}`;
+  const now = new Date().toISOString();
+  for (let i = 1; i <= 8; i++) {
+    const protocol: 'http' | 'https' | 'socks5' = i % 3 === 0 ? 'socks5' : i % 2 === 0 ? 'https' : 'http';
+    const host = `103.142.${10 + i}.${100 + i}`;
     const port = 8000 + i;
-    const ipPort = `${host}:${port}`;
-    
-    let status: 'online' | 'slow' | 'offline' | 'unknown' = 'online';
-    let latencyMs = Math.floor(25 + Math.random() * 90);
-
-    if (i % 9 === 0) {
-      status = 'offline';
-      latencyMs = 0;
-    } else if (i % 6 === 0) {
-      status = 'slow';
-      latencyMs = Math.floor(180 + Math.random() * 250);
-    } else if (i % 11 === 0) {
-      status = 'unknown';
-      latencyMs = 0;
-    } else {
-      status = 'online';
-    }
-
     proxies.push({
-      id: `proxy_${i}`,
+      id: `mock_proxy_${i}`,
+      name: `Mock Proxy ${i}`,
       protocol,
       host,
       port,
-      username: `user_hh3d_${i}`,
-      password: `secret_pass_${i}_hh3d`,
-      passwordEncrypted: `enc_b64_${btoa(`secret_pass_${i}_hh3d`)}`,
-      expectedIp: host,
-      currentIp: host,
-      latencyMs,
-      status,
-      lastCheckedAt: new Date(Date.now() - Math.floor(Math.random() * 3600000)).toISOString(),
-
-      // UI compatibility fields
-      name: `Proxy HH3D-${i < 10 ? '0' + i : i}`,
-      ipPort,
-      ping: latencyMs,
-      location,
-      assignedProfilesCount: 5,
-      activeRunningProfilesCount: i <= 3 ? 2 : (i % 4 === 0 ? 1 : 0),
-      lastChecked: new Date(Date.now() - Math.floor(Math.random() * 3600000)).toLocaleTimeString('vi-VN')
+      enabled: true,
+      authRequired: false,
+      hasCredentials: false,
+      credentialState: 'none',
+      notes: 'Web Preview mock only',
+      createdAt: now,
+      updatedAt: now,
+      assignedProfileCount: 0,
+      testState: 'not_tested',
+      ipPort: `${host}:${port}`,
+      status: 'unknown',
+      assignedProfilesCount: 0,
+      ping: 0,
+      lastChecked: 'Chưa test'
     });
   }
   return proxies;
@@ -113,9 +91,6 @@ export function generateInitialProfiles(proxies: ProxyItem[]): Profile[] {
     const proxy = proxies[proxyIndex];
     
     let status = statuses[(i * 7 + groupIndex) % statuses.length];
-    if (proxy.status === 'error' && Math.random() > 0.4) {
-      status = 'proxy_error';
-    }
     
     const level = Math.floor(65 + (i % 55));
     const stamina = Math.floor(20 + Math.random() * 80);

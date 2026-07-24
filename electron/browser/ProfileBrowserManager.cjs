@@ -86,10 +86,12 @@ class ProfileBrowserManager {
       this.profileRepo = optionsOrProfileRepo.profileRepo;
       this.broadcastCallback = optionsOrProfileRepo.broadcastCallback || (() => {});
       this.isDevelopment = Boolean(optionsOrProfileRepo.isDevelopment);
+      this.proxySessionManager = optionsOrProfileRepo.proxySessionManager || null;
     } else {
       this.profileRepo = optionsOrProfileRepo;
       this.broadcastCallback = broadcastCallback || (() => {});
       this.isDevelopment = false;
+      this.proxySessionManager = null;
     }
 
     /**
@@ -121,6 +123,10 @@ class ProfileBrowserManager {
      * Tracks persistent partitions whose permission policy has already been configured.
      */
     this.configuredPartitions = new Set();
+  }
+
+  setProxySessionManager(manager) {
+    this.proxySessionManager = manager;
   }
 
   /**
@@ -190,6 +196,27 @@ class ProfileBrowserManager {
     // Prevent page beforeunload handlers from blocking window close
     contents.on('will-prevent-unload', (event) => {
       event.preventDefault();
+    });
+
+    contents.on('login', async (event, _details, authInfo, callback) => {
+      if (!authInfo?.isProxy || !this.proxySessionManager) {
+        return;
+      }
+
+      try {
+        await this.proxySessionManager.handleProxyAuthentication(
+          profileId,
+          event,
+          authInfo,
+          callback,
+          browserEntry
+        );
+      } catch (error) {
+        console.error('[ProfileBrowserManager] Proxy authentication failed:', error.message);
+        browserEntry.state = 'error';
+        browserEntry.error = error.message;
+        this.emitStatusChanged(profileId, 'error', error.message);
+      }
     });
 
     contents.on('will-navigate', (event, navUrl) => {
@@ -302,13 +329,9 @@ class ProfileBrowserManager {
     }
 
     const profileId = validateProfileId(profile.id);
-    const partition = getPartitionForProfile(profileId);
-    this.configurePartitionSecurity(partition);
 
-    // Reset any previous error state on new open attempt
-    this.lastKnownStatuses.delete(profileId);
-
-    // 1. If browser already exists for this profile
+    // 1. If browser already exists for this profile, only focus it. Reapplying
+    // the proxy on an active session would unnecessarily close live sockets.
     if (this.browsers.has(profileId)) {
       const existing = this.browsers.get(profileId);
       if (existing.window && !existing.window.isDestroyed()) {
@@ -324,6 +347,19 @@ class ProfileBrowserManager {
         this.browsers.delete(profileId);
       }
     }
+
+    // Apply direct/proxy configuration only when a new BrowserWindow is about
+    // to be created. A configured proxy failure rejects the open operation and
+    // never falls back to Direct.
+    if (this.proxySessionManager) {
+      await this.proxySessionManager.applyProxyToProfileSession(profileId);
+    }
+
+    const partition = getPartitionForProfile(profileId);
+    this.configurePartitionSecurity(partition);
+
+    // Reset any previous error state on a new open attempt.
+    this.lastKnownStatuses.delete(profileId);
 
     // 2. Create new BrowserWindow instance
     const displayName = profile.displayName || profile.characterName || profile.uid || 'Profile';
@@ -356,7 +392,8 @@ class ProfileBrowserManager {
       childWindows: new Set(),
       closedWithError: false,
       closeReason: null,
-      initialLoadPending: true
+      initialLoadPending: true,
+      proxyAuthAttempts: 0
     };
 
     this.browsers.set(profileId, browserEntry);

@@ -1,41 +1,50 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
-/**
- * Preload Script
- * Exposes strictly safe methods on window.desktopBridge via contextBridge.
- * Does NOT expose raw ipcRenderer, send, on, or invoke directly.
- */
+function subscribe(channel, callback) {
+  const listener = (_event, payload) => callback(payload);
+  ipcRenderer.on(channel, listener);
+  return () => ipcRenderer.removeListener(channel, listener);
+}
+
 contextBridge.exposeInMainWorld('desktopBridge', {
   getVersions: () => ipcRenderer.invoke('app:get-versions'),
-  
-  // Storage Info
   getStorageInfo: () => ipcRenderer.invoke('storage:get-info'),
 
-  // Profiles
   listProfiles: () => ipcRenderer.invoke('profiles:list'),
-  createProfile: (profile) => ipcRenderer.invoke('profiles:create', profile),
+  createProfile: profile => ipcRenderer.invoke('profiles:create', profile),
   updateProfile: (profileId, changes) => ipcRenderer.invoke('profiles:update', profileId, changes),
-  deleteProfile: (profileId) => ipcRenderer.invoke('profiles:delete', profileId),
+  deleteProfile: profileId => ipcRenderer.invoke('profiles:delete', profileId),
 
-  // Groups
   listGroups: () => ipcRenderer.invoke('groups:list'),
-  createGroup: (group) => ipcRenderer.invoke('groups:create', group),
+  createGroup: group => ipcRenderer.invoke('groups:create', group),
   updateGroup: (groupId, changes) => ipcRenderer.invoke('groups:update', groupId, changes),
-  deleteGroup: (groupId) => ipcRenderer.invoke('groups:delete', groupId),
+  deleteGroup: groupId => ipcRenderer.invoke('groups:delete', groupId),
 
-  // Mini Browser
-  openMiniBrowser: (profileId) => ipcRenderer.invoke('mini-browser:open', profileId),
-  closeMiniBrowser: (profileId) => ipcRenderer.invoke('mini-browser:close', profileId),
-  focusMiniBrowser: (profileId) => ipcRenderer.invoke('mini-browser:focus', profileId),
-  reloadMiniBrowser: (profileId) => ipcRenderer.invoke('mini-browser:reload', profileId),
-  getMiniBrowserStatus: (profileId) => ipcRenderer.invoke('mini-browser:get-status', profileId),
+  openMiniBrowser: profileId => ipcRenderer.invoke('mini-browser:open', profileId),
+  closeMiniBrowser: profileId => ipcRenderer.invoke('mini-browser:close', profileId),
+  focusMiniBrowser: profileId => ipcRenderer.invoke('mini-browser:focus', profileId),
+  reloadMiniBrowser: profileId => ipcRenderer.invoke('mini-browser:reload', profileId),
+  getMiniBrowserStatus: profileId => ipcRenderer.invoke('mini-browser:get-status', profileId),
   listMiniBrowserStatuses: () => ipcRenderer.invoke('mini-browser:list-statuses'),
-  clearMiniBrowserSession: (profileId) => ipcRenderer.invoke('mini-browser:clear-session', profileId),
-  onMiniBrowserStatusChanged: (callback) => {
-    const subscription = (_event, data) => callback(data);
-    ipcRenderer.on('mini-browser:status-changed', subscription);
-    return () => {
-      ipcRenderer.removeListener('mini-browser:status-changed', subscription);
-    };
-  }
+  clearMiniBrowserSession: profileId => ipcRenderer.invoke('mini-browser:clear-session', profileId),
+  onMiniBrowserStatusChanged: callback => subscribe('mini-browser:status-changed', callback),
+
+  listProxies: () => ipcRenderer.invoke('proxies:list'),
+  getProxy: proxyId => ipcRenderer.invoke('proxies:get', proxyId),
+  createProxy: input => ipcRenderer.invoke('proxies:create', input),
+  updateProxy: (proxyId, changes) => ipcRenderer.invoke('proxies:update', proxyId, changes),
+  deleteProxy: proxyId => ipcRenderer.invoke('proxies:delete', proxyId),
+  importProxies: items => ipcRenderer.invoke('proxies:import', items),
+  testProxy: proxyId => ipcRenderer.invoke('proxies:test', proxyId),
+  testManyProxies: proxyIds => ipcRenderer.invoke('proxies:test-many', proxyIds),
+  assignProxyToProfiles: (profileIds, proxyId) => ipcRenderer.invoke('proxies:assign-profiles', profileIds, proxyId),
+  assignProxiesOneToOne: (profileIds, proxyIds) => ipcRenderer.invoke('proxies:assign-one-to-one', profileIds, proxyIds),
+  replaceProfilesForProxy: (proxyId, profileIds) => ipcRenderer.invoke('proxies:replace-profile-assignments', proxyId, profileIds),
+  unassignProxyFromProfiles: profileIds => ipcRenderer.invoke('proxies:unassign-profiles', profileIds),
+  getProfileProxyState: profileId => ipcRenderer.invoke('proxies:get-profile-state', profileId),
+  refreshProfileProxy: profileId => ipcRenderer.invoke('proxies:refresh-profile', profileId),
+  getProxyStorageInfo: () => ipcRenderer.invoke('proxies:get-storage-info'),
+  onProxiesChanged: callback => subscribe('proxies:changed', callback),
+  onProxyTestStatusChanged: callback => subscribe('proxy-test:status-changed', callback),
+  onProfileProxyStateChanged: callback => subscribe('profile-proxy:state-changed', callback)
 });

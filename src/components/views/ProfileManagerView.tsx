@@ -24,7 +24,7 @@ import {
   UserPlus,
   Info
 } from 'lucide-react';
-import { Profile, ProfileStatus, GroupItem, ProxyItem } from '../../types';
+import { Profile, ProfileStatus, GroupItem, ProxyItem, ProfileProxyState, ProxyImportItem } from '../../types';
 import { MiniBrowserStatus } from '../../types/electron';
 
 import { EditProfileModal } from '../modals/EditProfileModal';
@@ -33,6 +33,7 @@ import { AssignGroupModal } from '../modals/AssignGroupModal';
 import { AssignProxyModal } from '../modals/AssignProxyModal';
 import { ToggleModulesModal } from '../modals/ToggleModulesModal';
 import { ImportProfilesModal } from '../modals/ImportProfilesModal';
+import { BulkOneToOneProxyModal } from '../modals/BulkOneToOneProxyModal';
 
 interface ProfileManagerViewProps {
   profiles: Profile[];
@@ -57,9 +58,11 @@ interface ProfileManagerViewProps {
   onUpdateProfile: (id: string, updatedData: Partial<Profile>) => Promise<Profile>;
   onAssignGroupForSelected: (ids: string[], groupName: string) => Promise<void>;
   onAssignProxyForSelected: (ids: string[], proxyId: string) => Promise<void>;
+  onQuickImportAndAssignProxies: (profileIds: string[], proxyItems: ProxyImportItem[]) => Promise<unknown>;
   onToggleModulesForSelected: (ids: string[], enabledModules: string[]) => Promise<void>;
   onImportProfilesFromJSON: (importedProfiles: Partial<Profile>[]) => Promise<void>;
   miniBrowserStatuses?: Record<string, MiniBrowserStatus>;
+  profileProxyStates?: Record<string, ProfileProxyState>;
   onSelectionChange?: (selectedIds: string[]) => void;
 }
 
@@ -112,6 +115,8 @@ interface ProfileTableRowProps {
   profile: Profile;
   isChecked: boolean;
   miniBrowserStatus?: MiniBrowserStatus;
+  assignedProxy?: ProxyItem;
+  profileProxyState?: ProfileProxyState;
   onToggleSelectRow: (id: string) => void;
   onToggleProfileRun: (id: string) => void;
   onOpenMiniBrowser: (profileId: string) => Promise<MiniBrowserStatus>;
@@ -126,6 +131,8 @@ const ProfileTableRow = React.memo<ProfileTableRowProps>(({
   profile: p,
   isChecked,
   miniBrowserStatus,
+  assignedProxy,
+  profileProxyState,
   onToggleSelectRow,
   onToggleProfileRun,
   onOpenMiniBrowser,
@@ -137,6 +144,8 @@ const ProfileTableRow = React.memo<ProfileTableRowProps>(({
 }) => {
   const mbState = miniBrowserStatus?.state || 'closed';
   const isOpenOrLoading = mbState === 'opening' || mbState === 'loading' || mbState === 'open';
+  const hasProxyError = profileProxyState?.state === 'error';
+  const effectiveProfileStatus: ProfileStatus = hasProxyError ? 'proxy_error' : p.status;
 
   let tooltipText = 'Mở Mini Browser';
   if (mbState === 'opening' || mbState === 'loading') {
@@ -329,9 +338,11 @@ export const ProfileManagerView: React.FC<ProfileManagerViewProps> = ({
   onUpdateProfile,
   onAssignGroupForSelected,
   onAssignProxyForSelected,
+  onQuickImportAndAssignProxies,
   onToggleModulesForSelected,
   onImportProfilesFromJSON,
   miniBrowserStatuses = {},
+  profileProxyStates = {},
   onSelectionChange
 }) => {
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
@@ -353,6 +364,7 @@ export const ProfileManagerView: React.FC<ProfileManagerViewProps> = ({
 
   const [isAssignGroupOpen, setIsAssignGroupOpen] = useState(false);
   const [isAssignProxyOpen, setIsAssignProxyOpen] = useState(false);
+  const [isOneToOneProxyOpen, setIsOneToOneProxyOpen] = useState(false);
   const [isToggleModulesOpen, setIsToggleModulesOpen] = useState(false);
   const [isImportJsonOpen, setIsImportJsonOpen] = useState(false);
 
@@ -365,7 +377,10 @@ export const ProfileManagerView: React.FC<ProfileManagerViewProps> = ({
     let loginRequired = 0;
 
     for (let i = 0; i < profiles.length; i++) {
-      const st = profiles[i].status;
+      const profile = profiles[i];
+      const st: ProfileStatus = profileProxyStates[profile.id]?.state === 'error'
+        ? 'proxy_error'
+        : profile.status;
       if (st === 'running') running++;
       else if (st === 'waiting') waiting++;
       else if (st === 'stopped') stopped++;
@@ -374,7 +389,7 @@ export const ProfileManagerView: React.FC<ProfileManagerViewProps> = ({
     }
 
     return { total: profiles.length, running, waiting, stopped, proxyError, loginRequired };
-  }, [profiles]);
+  }, [profiles, profileProxyStates]);
 
   // Filter profiles
   const filteredProfiles = useMemo(() => {
@@ -383,8 +398,11 @@ export const ProfileManagerView: React.FC<ProfileManagerViewProps> = ({
       // Group filter
       if (selectedGroup && p.group !== selectedGroup) return false;
       
-      // Status filter
-      if (statusFilter && p.status !== statusFilter) return false;
+      // Status filter includes runtime proxy errors without persisting them into profile JSON.
+      const effectiveStatus: ProfileStatus = profileProxyStates[p.id]?.state === 'error'
+        ? 'proxy_error'
+        : p.status;
+      if (statusFilter && effectiveStatus !== statusFilter) return false;
 
       // Search query
       if (q) {
@@ -400,7 +418,7 @@ export const ProfileManagerView: React.FC<ProfileManagerViewProps> = ({
 
       return true;
     });
-  }, [profiles, selectedGroup, statusFilter, searchQuery]);
+  }, [profiles, profileProxyStates, selectedGroup, statusFilter, searchQuery]);
 
   // Pagination logic
   const totalPages = Math.ceil(filteredProfiles.length / pageSize) || 1;
@@ -597,6 +615,15 @@ export const ProfileManagerView: React.FC<ProfileManagerViewProps> = ({
             </button>
 
             <button
+              onClick={() => setIsOneToOneProxyOpen(true)}
+              className="flex items-center gap-1 px-2.5 py-1 bg-cyan-900 hover:bg-cyan-800 text-cyan-100 border border-cyan-700 rounded font-semibold transition"
+              title="Dán danh sách proxy và gán theo thứ tự cho các profile đã chọn"
+            >
+              <Network className="w-3 h-3 text-cyan-300" />
+              <span>Đặt Proxy nhanh</span>
+            </button>
+
+            <button
               onClick={() => setIsToggleModulesOpen(true)}
               className="flex items-center gap-1 px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded font-medium transition"
             >
@@ -657,6 +684,8 @@ export const ProfileManagerView: React.FC<ProfileManagerViewProps> = ({
                   profile={p}
                   isChecked={selectedSet.has(p.id)}
                   miniBrowserStatus={miniBrowserStatuses[p.id]}
+                  assignedProxy={proxies.find(proxy => proxy.id === p.proxyId)}
+                  profileProxyState={profileProxyStates[p.id]}
                   onToggleSelectRow={handleToggleSelectRow}
                   onToggleProfileRun={onToggleProfileRun}
                   onOpenMiniBrowser={onOpenMiniBrowser}
@@ -753,6 +782,16 @@ export const ProfileManagerView: React.FC<ProfileManagerViewProps> = ({
         onSubmit={async (proxyId) => {
           await onAssignProxyForSelected(selectedIds, proxyId);
         }}
+      />
+
+      <BulkOneToOneProxyModal
+        isOpen={isOneToOneProxyOpen}
+        selectedProfiles={selectedIds
+          .map(profileId => profiles.find(profile => profile.id === profileId))
+          .filter((profile): profile is Profile => Boolean(profile))}
+        proxies={proxies}
+        onClose={() => setIsOneToOneProxyOpen(false)}
+        onSubmit={onQuickImportAndAssignProxies}
       />
 
       <ToggleModulesModal

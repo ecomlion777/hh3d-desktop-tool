@@ -1,335 +1,283 @@
-/**
- * ProxyEditModal - Add Proxy (Single Manual Add & Bulk Import Tabs)
- */
-
-import React, { useState, useMemo } from 'react';
-import { X, ShieldCheck, CheckCircle2, Eye, EyeOff, Plus, FileText, AlertCircle } from 'lucide-react';
-import { ProxyItem } from '../../types';
-import { parseMultiLineProxies, parseProxyLine } from '../../utils/proxyParser';
+import React, { useEffect, useMemo, useState } from 'react';
+import { AlertTriangle, CheckCircle2, Eye, EyeOff, FileUp, KeyRound, Network, X } from 'lucide-react';
+import type {
+  ProxyCreateInput,
+  ProxyImportItem,
+  ProxyItem,
+  ProxyProtocol,
+  ProxyUpdateInput
+} from '../../types';
+import { parseMultiLineProxies } from '../../utils/proxyParser';
 
 interface ProxyEditModalProps {
   isOpen: boolean;
+  proxy?: ProxyItem | null;
   onClose: () => void;
-  onSubmitSingleProxy: (data: Partial<ProxyItem>) => Promise<void>;
-  onSubmitBulkProxies: (lines: string[]) => Promise<void>;
+  onSubmit: (data: ProxyCreateInput | ProxyUpdateInput) => Promise<void>;
+  onImport: (items: ProxyImportItem[]) => Promise<void>;
 }
 
 export const ProxyEditModal: React.FC<ProxyEditModalProps> = ({
   isOpen,
+  proxy,
   onClose,
-  onSubmitSingleProxy,
-  onSubmitBulkProxies
+  onSubmit,
+  onImport
 }) => {
-  const [activeTab, setActiveTab] = useState<'single' | 'bulk'>('single');
-
-  // Single Proxy Form State
+  const [mode, setMode] = useState<'single' | 'bulk'>('single');
   const [name, setName] = useState('');
-  const [protocol, setProtocol] = useState<'HTTP' | 'HTTPS' | 'SOCKS5' | 'SOCKS4'>('SOCKS5');
+  const [protocol, setProtocol] = useState<ProxyProtocol>('http');
   const [host, setHost] = useState('');
   const [port, setPort] = useState('8080');
+  const [enabled, setEnabled] = useState(true);
+  const [authRequired, setAuthRequired] = useState(false);
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
-  const [location, setLocation] = useState('Việt Nam (Hà Nội)');
-
-  // Bulk Import State
+  const [clearCredentials, setClearCredentials] = useState(false);
+  const [notes, setNotes] = useState('');
   const [rawText, setRawText] = useState('');
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // Real-time parsed list preview
-  const parsedBulkItems = useMemo(() => {
-    if (!rawText.trim()) return [];
-    return parseMultiLineProxies(rawText);
-  }, [rawText]);
+  useEffect(() => {
+    if (!isOpen) return;
+    setMode('single');
+    setName(proxy?.name || '');
+    setProtocol(proxy?.protocol || 'http');
+    setHost(proxy?.host || '');
+    setPort(String(proxy?.port || 8080));
+    setEnabled(proxy?.enabled !== false);
+    setAuthRequired(Boolean(proxy?.authRequired));
+    setUsername('');
+    setPassword('');
+    setShowPassword(false);
+    setClearCredentials(false);
+    setNotes(proxy?.notes || '');
+    setRawText('');
+    setErrorMsg(null);
+  }, [isOpen, proxy]);
 
-  const rawLinesCount = useMemo(() => {
-    return rawText.split('\n').filter(l => l.trim().length > 0).length;
-  }, [rawText]);
+  const parsedLines = useMemo(() => parseMultiLineProxies(rawText), [rawText]);
+  const validItems = useMemo(
+    () => parsedLines.filter(line => line.valid && line.item).map(line => line.item!) as ProxyImportItem[],
+    [parsedLines]
+  );
+  const invalidLines = useMemo(() => parsedLines.filter(line => !line.valid), [parsedLines]);
 
   if (!isOpen) return null;
 
-  const handleSingleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!host.trim()) {
-      alert('Vui lòng nhập Host / IP của Proxy!');
-      return;
-    }
-    const portNum = parseInt(port, 10);
-    if (isNaN(portNum) || portNum <= 0 || portNum > 65535) {
-      alert('Cổng (Port) không hợp lệ (1 - 65535)!');
+  const handleSingleSubmit = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (isSubmitting) return;
+    setErrorMsg(null);
+
+    const portNumber = Number(port);
+    if (!name.trim() || !host.trim() || !Number.isInteger(portNumber) || portNumber < 1 || portNumber > 65535) {
+      setErrorMsg('Vui lòng nhập tên, host và port hợp lệ.');
       return;
     }
 
-    await onSubmitSingleProxy({
-      name: name.trim() || undefined,
+    if (!proxy && authRequired && (!username.trim() || !password)) {
+      setErrorMsg('Proxy xác thực mới cần đầy đủ username và password.');
+      return;
+    }
+
+    const base = {
+      name: name.trim(),
       protocol,
       host: host.trim(),
-      port: portNum,
-      username: username.trim() || undefined,
-      password: password.trim() || undefined,
-      location: location.trim() || undefined
-    });
+      port: portNumber,
+      enabled,
+      authRequired: clearCredentials ? false : authRequired,
+      notes: notes.trim()
+    };
 
-    onClose();
+    const payload: ProxyCreateInput | ProxyUpdateInput = proxy
+      ? {
+          ...base,
+          username: username.trim() || undefined,
+          password: password || undefined,
+          clearCredentials
+        }
+      : {
+          ...base,
+          username: authRequired ? username.trim() : undefined,
+          password: authRequired ? password : undefined
+        };
+
+    try {
+      setIsSubmitting(true);
+      await onSubmit(payload);
+      onClose();
+    } catch (error) {
+      setErrorMsg(error instanceof Error ? error.message : String(error));
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
-  const handleBulkSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const lines = rawText.split('\n').filter(l => l.trim().length > 0);
-    if (lines.length === 0) {
-      alert('Vui lòng nhập ít nhất một dòng Proxy!');
-      return;
-    }
-    if (parsedBulkItems.length === 0) {
-      alert('Không nhận diện được dòng Proxy hợp lệ nào!');
+  const handleBulkSubmit = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (isSubmitting) return;
+    setErrorMsg(null);
+
+    if (validItems.length === 0) {
+      setErrorMsg('Không có dòng proxy hợp lệ để import.');
       return;
     }
 
-    await onSubmitBulkProxies(lines);
-    setRawText('');
-    onClose();
+    try {
+      setIsSubmitting(true);
+      await onImport(validItems);
+      onClose();
+    } catch (error) {
+      setErrorMsg(error instanceof Error ? error.message : String(error));
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200 select-none">
-      <div className="bg-slate-900 border border-slate-700 rounded-lg shadow-2xl w-full max-w-xl overflow-hidden text-slate-200 flex flex-col">
-        
-        {/* Header */}
-        <div className="bg-slate-950 px-4 py-3 border-b border-slate-800 flex items-center justify-between">
-          <div className="flex items-center space-x-2">
-            <ShieldCheck className="w-5 h-5 text-amber-400" />
-            <h3 className="font-bold text-sm text-slate-100">Thêm Proxy Mới</h3>
-          </div>
-          <button
-            onClick={onClose}
-            className="p-1 text-slate-400 hover:text-white hover:bg-slate-800 rounded transition"
-          >
-            <X className="w-4 h-4" />
-          </button>
-        </div>
-
-        {/* Tab Selection Bar */}
-        <div className="flex border-b border-slate-800 bg-slate-950/60">
-          <button
-            type="button"
-            onClick={() => setActiveTab('single')}
-            className={`flex-1 py-2.5 text-xs font-semibold flex items-center justify-center gap-1.5 transition border-b-2 ${
-              activeTab === 'single'
-                ? 'border-amber-500 text-amber-400 bg-slate-900'
-                : 'border-transparent text-slate-400 hover:text-slate-200 hover:bg-slate-900/50'
-            }`}
-          >
-            <Plus className="w-4 h-4" />
-            <span>Thêm Thủ Công (1 Proxy)</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveTab('bulk')}
-            className={`flex-1 py-2.5 text-xs font-semibold flex items-center justify-center gap-1.5 transition border-b-2 ${
-              activeTab === 'bulk'
-                ? 'border-amber-500 text-amber-400 bg-slate-900'
-                : 'border-transparent text-slate-400 hover:text-slate-200 hover:bg-slate-900/50'
-            }`}
-          >
-            <FileText className="w-4 h-4" />
-            <span>Import Hàng Loạt (Multi-line)</span>
-          </button>
-        </div>
-
-        {/* Tab 1: Single Proxy Form */}
-        {activeTab === 'single' && (
-          <form onSubmit={handleSingleSubmit} className="p-4 space-y-3.5 text-xs">
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="block text-slate-400 font-medium mb-1">Tên Proxy (Tùy chọn)</label>
-                <input
-                  type="text"
-                  value={name}
-                  onChange={e => setName(e.target.value)}
-                  placeholder="Ví dụ: Proxy Chạy Clone #1"
-                  className="w-full bg-slate-950 border border-slate-800 rounded px-3 py-1.5 text-slate-200 focus:outline-none focus:border-amber-500"
-                />
-              </div>
-
-              <div>
-                <label className="block text-slate-400 font-medium mb-1">Giao Thức (Protocol)</label>
-                <select
-                  value={protocol}
-                  onChange={e => setProtocol(e.target.value as any)}
-                  className="w-full bg-slate-950 border border-slate-800 rounded px-3 py-1.5 text-slate-200 focus:outline-none focus:border-amber-500 font-mono"
-                >
-                  <option value="SOCKS5">SOCKS5 (Khuyên dùng)</option>
-                  <option value="HTTP">HTTP</option>
-                  <option value="HTTPS">HTTPS</option>
-                  <option value="SOCKS4">SOCKS4</option>
-                </select>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-3 gap-3">
-              <div className="col-span-2">
-                <label className="block text-slate-400 font-medium mb-1">IP / Host <span className="text-red-400">*</span></label>
-                <input
-                  type="text"
-                  required
-                  value={host}
-                  onChange={e => setHost(e.target.value)}
-                  placeholder="103.142.10.150"
-                  className="w-full bg-slate-950 border border-slate-800 rounded px-3 py-1.5 text-slate-200 focus:outline-none focus:border-amber-500 font-mono"
-                />
-              </div>
-
-              <div>
-                <label className="block text-slate-400 font-medium mb-1">Cổng (Port) <span className="text-red-400">*</span></label>
-                <input
-                  type="number"
-                  required
-                  value={port}
-                  onChange={e => setPort(e.target.value)}
-                  placeholder="8080"
-                  className="w-full bg-slate-950 border border-slate-800 rounded px-3 py-1.5 text-slate-200 focus:outline-none focus:border-amber-500 font-mono"
-                />
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="block text-slate-400 font-medium mb-1">Tài khoản (Username)</label>
-                <input
-                  type="text"
-                  value={username}
-                  onChange={e => setUsername(e.target.value)}
-                  placeholder="Để trống nếu không có"
-                  className="w-full bg-slate-950 border border-slate-800 rounded px-3 py-1.5 text-slate-200 focus:outline-none focus:border-amber-500 font-mono"
-                />
-              </div>
-
-              <div>
-                <label className="block text-slate-400 font-medium mb-1">Mật khẩu (Password)</label>
-                <div className="relative">
-                  <input
-                    type={showPassword ? 'text' : 'password'}
-                    value={password}
-                    onChange={e => setPassword(e.target.value)}
-                    placeholder="••••••••"
-                    className="w-full bg-slate-950 border border-slate-800 rounded pl-3 pr-8 py-1.5 text-slate-200 focus:outline-none focus:border-amber-500 font-mono"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowPassword(!showPassword)}
-                    className="absolute right-2 top-2 text-slate-500 hover:text-slate-300"
-                  >
-                    {showPassword ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
-                  </button>
-                </div>
-              </div>
-            </div>
-
+    <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+      <div className="w-full max-w-2xl max-h-[92vh] overflow-hidden rounded-lg border border-slate-700 bg-slate-900 text-slate-200 shadow-2xl">
+        <div className="flex items-center justify-between border-b border-slate-800 bg-slate-950 px-4 py-3">
+          <div className="flex items-center gap-2">
+            <Network className="h-5 w-5 text-amber-400" />
             <div>
-              <label className="block text-slate-400 font-medium mb-1">Vị Trí / Quốc Gia</label>
-              <select
-                value={location}
-                onChange={e => setLocation(e.target.value)}
-                className="w-full bg-slate-950 border border-slate-800 rounded px-3 py-1.5 text-slate-200 focus:outline-none focus:border-amber-500"
-              >
-                <option value="Việt Nam (Hà Nội)">Việt Nam (Hà Nội)</option>
-                <option value="Việt Nam (TP.HCM)">Việt Nam (TP.HCM)</option>
-                <option value="Singapore">Singapore</option>
-                <option value="Japan (Tokyo)">Japan (Tokyo)</option>
-                <option value="Hong Kong">Hong Kong</option>
-                <option value="USA (West)">USA (West)</option>
-              </select>
+              <h3 className="text-sm font-bold">{proxy ? 'Chỉnh Sửa Proxy' : 'Thêm / Import Proxy'}</h3>
+              <p className="text-[11px] text-slate-400">Mật khẩu chỉ được gửi tới Electron Main để mã hóa bằng hệ điều hành.</p>
             </div>
+          </div>
+          <button onClick={onClose} disabled={isSubmitting} className="rounded p-1 text-slate-400 hover:bg-slate-800 hover:text-white">
+            <X className="h-4 w-4" />
+          </button>
+        </div>
 
-            <div className="pt-3 flex justify-end space-x-2 border-t border-slate-800">
-              <button
-                type="button"
-                onClick={onClose}
-                className="px-4 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded font-medium transition"
-              >
-                Hủy
-              </button>
-              <button
-                type="submit"
-                className="px-4 py-1.5 bg-amber-600 hover:bg-amber-500 text-white rounded font-medium transition flex items-center gap-1.5"
-              >
-                <CheckCircle2 className="w-4 h-4" />
-                <span>Thêm Proxy</span>
-              </button>
-            </div>
-          </form>
+        {!proxy && (
+          <div className="flex border-b border-slate-800 bg-slate-950 px-4">
+            <button onClick={() => setMode('single')} className={`px-4 py-2 text-xs font-semibold ${mode === 'single' ? 'border-b-2 border-amber-400 text-amber-300' : 'text-slate-400'}`}>
+              Thêm Một Proxy
+            </button>
+            <button onClick={() => setMode('bulk')} className={`px-4 py-2 text-xs font-semibold ${mode === 'bulk' ? 'border-b-2 border-amber-400 text-amber-300' : 'text-slate-400'}`}>
+              Import Hàng Loạt
+            </button>
+          </div>
         )}
 
-        {/* Tab 2: Bulk Import Form */}
-        {activeTab === 'bulk' && (
-          <form onSubmit={handleBulkSubmit} className="p-4 space-y-3 text-xs">
-            <div>
-              <div className="flex items-center justify-between mb-1">
-                <label className="block text-slate-400 font-medium">
-                  Danh Sách Proxy (Mỗi dòng 1 Proxy)
-                </label>
-                {rawLinesCount > 0 && (
-                  <span className="text-[11px] text-amber-400 font-mono">
-                    Đã nhận diện: {parsedBulkItems.length} / {rawLinesCount} dòng
-                  </span>
-                )}
-              </div>
+        {errorMsg && (
+          <div className="m-4 flex items-start gap-2 rounded border border-rose-800 bg-rose-950/60 p-3 text-xs text-rose-200">
+            <AlertTriangle className="h-4 w-4 shrink-0" />
+            <span>{errorMsg}</span>
+          </div>
+        )}
 
-              <textarea
-                rows={7}
-                value={rawText}
-                onChange={e => setRawText(e.target.value)}
-                placeholder={`Hỗ trợ các định dạng:\n103.142.20.101:8080\n103.142.20.102:8080:username:password\nuser:pass@103.142.20.103:8080\nhttp://user:pass@103.142.20.104:8080\nsocks5://user:pass@103.142.20.105:8080`}
-                className="w-full bg-slate-950 border border-slate-800 rounded p-3 text-slate-200 focus:outline-none focus:border-amber-500 font-mono text-[11px] leading-relaxed"
-              ></textarea>
+        {(proxy || mode === 'single') ? (
+          <form onSubmit={handleSingleSubmit} className="max-h-[75vh] space-y-4 overflow-y-auto p-4 text-xs">
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+              <label className="space-y-1">
+                <span className="text-slate-400">Tên Proxy</span>
+                <input value={name} onChange={e => setName(e.target.value)} className="w-full rounded border border-slate-800 bg-slate-950 px-3 py-2 outline-none focus:border-amber-500" />
+              </label>
+              <label className="space-y-1">
+                <span className="text-slate-400">Protocol</span>
+                <select value={protocol} onChange={e => setProtocol(e.target.value as ProxyProtocol)} className="w-full rounded border border-slate-800 bg-slate-950 px-3 py-2 outline-none focus:border-amber-500">
+                  <option value="http">HTTP</option>
+                  <option value="https">HTTPS</option>
+                  <option value="socks4">SOCKS4</option>
+                  <option value="socks5">SOCKS5</option>
+                </select>
+              </label>
+              <label className="space-y-1">
+                <span className="text-slate-400">Host</span>
+                <input value={host} onChange={e => setHost(e.target.value)} placeholder="127.0.0.1" className="w-full rounded border border-slate-800 bg-slate-950 px-3 py-2 font-mono outline-none focus:border-amber-500" />
+              </label>
+              <label className="space-y-1">
+                <span className="text-slate-400">Port</span>
+                <input type="number" min={1} max={65535} value={port} onChange={e => setPort(e.target.value)} className="w-full rounded border border-slate-800 bg-slate-950 px-3 py-2 font-mono outline-none focus:border-amber-500" />
+              </label>
             </div>
 
-            {/* Supported Formats Info */}
-            <div className="bg-slate-950 p-2.5 rounded border border-slate-800 text-[11px] space-y-1">
-              <div className="font-semibold text-slate-300 flex items-center gap-1">
-                <AlertCircle className="w-3.5 h-3.5 text-amber-400" />
-                <span>Các định dạng được tự động nhận diện:</span>
-              </div>
-              <ul className="text-slate-400 space-y-0.5 list-disc pl-4 font-mono text-[10px]">
-                <li><code className="text-amber-300">ip:port</code></li>
-                <li><code className="text-amber-300">ip:port:user:pass</code></li>
-                <li><code className="text-amber-300">user:pass@ip:port</code></li>
-                <li><code className="text-amber-300">http://user:pass@ip:port</code></li>
-                <li><code className="text-amber-300">socks5://user:pass@ip:port</code></li>
-              </ul>
-            </div>
-
-            {/* Live Parse Preview Sample */}
-            {parsedBulkItems.length > 0 && (
-              <div className="bg-slate-950 p-2 rounded border border-amber-900/50 max-h-24 overflow-y-auto">
-                <div className="text-[10px] text-amber-400 font-bold mb-1">Xem trước mẫu ({parsedBulkItems.length} proxy):</div>
-                <div className="space-y-1 font-mono text-[10px]">
-                  {parsedBulkItems.slice(0, 4).map((p, i) => (
-                    <div key={i} className="text-slate-300 flex items-center justify-between border-b border-slate-900 pb-0.5">
-                      <span>[{p.protocol}] {p.ipPort}</span>
-                      <span className="text-slate-500">{p.username ? `User: ${p.username} (Password hidden)` : 'Không user'}</span>
-                    </div>
-                  ))}
-                  {parsedBulkItems.length > 4 && (
-                    <div className="text-slate-500 text-[9px] italic">+ {parsedBulkItems.length - 4} proxy khác...</div>
-                  )}
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+              <label className="flex items-center justify-between rounded border border-slate-800 bg-slate-950 p-3">
+                <div>
+                  <span className="block font-semibold">Bật proxy</span>
+                  <span className="text-[10px] text-slate-500">Proxy bị tắt không thể gán hoặc mở Mini Browser.</span>
                 </div>
+                <input type="checkbox" checked={enabled} onChange={e => setEnabled(e.target.checked)} />
+              </label>
+              <label className="flex items-center justify-between rounded border border-slate-800 bg-slate-950 p-3">
+                <div>
+                  <span className="block font-semibold">Có xác thực</span>
+                  <span className="text-[10px] text-slate-500">Credential được mã hóa ngoài app-data.json.</span>
+                </div>
+                <input type="checkbox" checked={authRequired} disabled={clearCredentials} onChange={e => setAuthRequired(e.target.checked)} />
+              </label>
+            </div>
+
+            {authRequired && !clearCredentials && (
+              <div className="grid grid-cols-1 gap-3 rounded border border-amber-900/60 bg-amber-950/20 p-3 md:grid-cols-2">
+                <label className="space-y-1">
+                  <span className="flex items-center gap-1 text-amber-300"><KeyRound className="h-3.5 w-3.5" /> Username</span>
+                  <input value={username} onChange={e => setUsername(e.target.value)} placeholder={proxy?.maskedUsername || 'username'} className="w-full rounded border border-slate-800 bg-slate-950 px-3 py-2 font-mono outline-none focus:border-amber-500" />
+                </label>
+                <label className="space-y-1">
+                  <span className="text-amber-300">Password {proxy && '(để trống để giữ nguyên)'}</span>
+                  <div className="relative">
+                    <input type={showPassword ? 'text' : 'password'} value={password} onChange={e => setPassword(e.target.value)} className="w-full rounded border border-slate-800 bg-slate-950 px-3 py-2 pr-9 font-mono outline-none focus:border-amber-500" />
+                    <button type="button" onClick={() => setShowPassword(value => !value)} className="absolute right-2 top-2 text-slate-500 hover:text-slate-200">
+                      {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                    </button>
+                  </div>
+                </label>
               </div>
             )}
 
-            <div className="pt-2 flex justify-end space-x-2 border-t border-slate-800">
-              <button
-                type="button"
-                onClick={onClose}
-                className="px-4 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded font-medium transition"
-              >
-                Hủy
+            {proxy?.hasCredentials && (
+              <label className="flex items-center gap-2 text-rose-300">
+                <input type="checkbox" checked={clearCredentials} onChange={e => setClearCredentials(e.target.checked)} />
+                <span>Xóa credential đã lưu và chuyển proxy sang không xác thực</span>
+              </label>
+            )}
+
+            <label className="block space-y-1">
+              <span className="text-slate-400">Ghi chú</span>
+              <textarea value={notes} onChange={e => setNotes(e.target.value)} rows={3} className="w-full rounded border border-slate-800 bg-slate-950 px-3 py-2 outline-none focus:border-amber-500" />
+            </label>
+
+            <div className="flex justify-end gap-2 border-t border-slate-800 pt-3">
+              <button type="button" onClick={onClose} disabled={isSubmitting} className="rounded bg-slate-800 px-4 py-2 text-slate-300 hover:bg-slate-700">Hủy</button>
+              <button type="submit" disabled={isSubmitting} className="flex items-center gap-1 rounded bg-amber-600 px-4 py-2 font-semibold text-white hover:bg-amber-500 disabled:opacity-50">
+                <CheckCircle2 className="h-4 w-4" /> {isSubmitting ? 'Đang lưu...' : 'Lưu Proxy'}
               </button>
-              <button
-                type="submit"
-                className="px-4 py-1.5 bg-amber-600 hover:bg-amber-500 text-white rounded font-medium transition flex items-center gap-1.5"
-              >
-                <CheckCircle2 className="w-4 h-4" />
-                <span>Xác Nhận Import ({parsedBulkItems.length})</span>
+            </div>
+          </form>
+        ) : (
+          <form onSubmit={handleBulkSubmit} className="max-h-[75vh] space-y-3 overflow-y-auto p-4 text-xs">
+            <label className="block space-y-1">
+              <span className="flex items-center gap-1 text-slate-300"><FileUp className="h-4 w-4 text-amber-400" /> Mỗi dòng một proxy, tối đa 500 dòng</span>
+              <textarea
+                rows={10}
+                value={rawText}
+                onChange={e => setRawText(e.target.value)}
+                placeholder={'host:port\nhost:port:username:password\nprotocol://host:port\nprotocol://username:password@host:port'}
+                className="w-full rounded border border-slate-800 bg-slate-950 p-3 font-mono text-[11px] outline-none focus:border-amber-500"
+              />
+            </label>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="rounded border border-emerald-800 bg-emerald-950/30 p-3 text-emerald-300">Hợp lệ: <strong>{validItems.length}</strong></div>
+              <div className="rounded border border-rose-800 bg-rose-950/30 p-3 text-rose-300">Không hợp lệ: <strong>{invalidLines.length}</strong></div>
+            </div>
+            {invalidLines.length > 0 && (
+              <div className="max-h-32 overflow-y-auto rounded border border-slate-800 bg-slate-950 p-2 font-mono text-[10px] text-rose-300">
+                {invalidLines.slice(0, 20).map(line => <div key={line.sourceLine}>Dòng {line.sourceLine}: {line.error}</div>)}
+              </div>
+            )}
+            <p className="text-[10px] text-slate-500">Preview không hiển thị password. Import không tự động test proxy.</p>
+            <div className="flex justify-end gap-2 border-t border-slate-800 pt-3">
+              <button type="button" onClick={onClose} disabled={isSubmitting} className="rounded bg-slate-800 px-4 py-2">Hủy</button>
+              <button type="submit" disabled={isSubmitting || validItems.length === 0} className="rounded bg-amber-600 px-4 py-2 font-semibold text-white disabled:opacity-50">
+                {isSubmitting ? 'Đang import...' : `Import ${validItems.length} Proxy`}
               </button>
             </div>
           </form>

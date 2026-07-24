@@ -1,21 +1,18 @@
-/**
- * ProxyManagerPage - Network Proxies Page
- */
-
 import React from 'react';
 import { ProxyManagerView } from '../components/views/ProxyManagerView';
-import { ProxyItem, Profile } from '../types';
+import type { Profile, ProxyItem, ProxyTestResult } from '../types';
 
 interface ProxyManagerPageProps {
   proxies: ProxyItem[];
   profiles: Profile[];
-  onTestProxy: (id: string) => void;
-  onTestAllProxies: () => void;
+  onTestProxy: (id: string) => Promise<ProxyTestResult>;
+  onTestAllProxies: () => Promise<ProxyTestResult[]>;
   onOpenAddProxyModal: () => void;
-  onDeleteProxies: (ids: string[]) => void;
+  onEditProxy: (proxy: ProxyItem) => void;
+  onDeleteProxies: (ids: string[]) => Promise<void>;
+  onToggleEnabled: (proxy: ProxyItem) => Promise<void>;
   onAssignProfilesToProxy: (proxyId: string, profileIds: string[]) => Promise<void>;
+  onError: (message: string) => void;
 }
 
-export const ProxyManagerPage: React.FC<ProxyManagerPageProps> = (props) => {
-  return <ProxyManagerView {...props} />;
-};
+export const ProxyManagerPage: React.FC<ProxyManagerPageProps> = props => <ProxyManagerView {...props} />;

@@ -52,7 +52,7 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({
       const initGroupId = profile.groupId || groups.find(g => g.name === profile.group)?.id || groups[0]?.id || '';
       setSelectedGroupId(initGroupId);
 
-      setSelectedProxyId(profile.proxyId || proxies[0]?.id || '');
+      setSelectedProxyId(profile.proxyId || '');
       setLevel(profile.level || 70);
       setStamina(profile.stamina || 100);
       setEnabledModules(profile.enabledModules || ['daily_quest', 'dungeon']);
@@ -90,8 +90,8 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({
 
     // Find proxy address
     const px = proxies.find(p => p.id === selectedProxyId);
-    const pxAddress = px ? px.ipPort || `${px.host}:${px.port}` : profile.proxyAddress;
-    const pxIp = px ? px.host || px.ipPort?.split(':')[0] : profile.currentIp;
+    const pxAddress = px ? `${px.host}:${px.port}` : 'Không dùng Proxy';
+    const pxIp = '';
 
     const targetGroup = groups.find(g => g.id === selectedGroupId);
 
@@ -201,8 +201,11 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({
                 onChange={e => setSelectedProxyId(e.target.value)}
                 className="w-full bg-slate-950 border border-slate-800 rounded px-3 py-1.5 text-slate-200 focus:outline-none focus:border-cyan-500 font-mono"
               >
-                {proxies.map(px => (
-                  <option key={px.id} value={px.id}>{px.name} ({px.ipPort})</option>
+                <option value="">Không dùng Proxy (Direct)</option>
+                    {proxies.filter(px => px.enabled || px.id === profile.proxyId).map(px => (
+                  <option key={px.id} value={px.id}>
+                    {px.name} ({px.protocol}://{px.host}:{px.port}){px.enabled ? '' : ' — Đang tắt'}
+                  </option>
                 ))}
               </select>
             </div>

@@ -29,7 +29,7 @@ export const AddProfileModal: React.FC<AddProfileModalProps> = ({
   const [characterName, setCharacterName] = useState('');
   const [uid, setUid] = useState('');
   const [selectedGroupId, setSelectedGroupId] = useState(groups[0]?.id || '');
-  const [selectedProxyId, setSelectedProxyId] = useState(proxies[0]?.id || '');
+  const [selectedProxyId, setSelectedProxyId] = useState('');
   const [bulkText, setBulkText] = useState('');
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -40,8 +40,8 @@ export const AddProfileModal: React.FC<AddProfileModalProps> = ({
       if (!selectedGroupId || !groups.some(g => g.id === selectedGroupId)) {
         setSelectedGroupId(groups[0]?.id || '');
       }
-      if (!selectedProxyId || !proxies.some(p => p.id === selectedProxyId)) {
-        setSelectedProxyId(proxies[0]?.id || '');
+      if (selectedProxyId && !proxies.some(p => p.id === selectedProxyId && p.enabled)) {
+        setSelectedProxyId('');
       }
     }
   }, [isOpen, groups, proxies]);
@@ -222,8 +222,9 @@ export const AddProfileModal: React.FC<AddProfileModalProps> = ({
                   onChange={e => setSelectedProxyId(e.target.value)}
                   className="w-full bg-slate-950 border border-slate-800 rounded px-3 py-2 text-slate-200 focus:outline-none focus:border-emerald-500 font-mono"
                 >
-                  {proxies.map(px => (
-                    <option key={px.id} value={px.id}>{px.name} ({px.ipPort})</option>
+                  <option value="">Không dùng Proxy (Direct)</option>
+                    {proxies.filter(px => px.enabled).map(px => (
+                    <option key={px.id} value={px.id}>{px.name} ({px.protocol}://{px.host}:{px.port})</option>
                   ))}
                 </select>
               </div>
@@ -279,14 +280,15 @@ export const AddProfileModal: React.FC<AddProfileModalProps> = ({
               </div>
 
               <div>
-                <label className="block text-slate-400 font-medium mb-1">Gán Proxy Xoay Vòng</label>
+                <label className="block text-slate-400 font-medium mb-1">Gán Proxy</label>
                 <select
                   value={selectedProxyId}
                   onChange={e => setSelectedProxyId(e.target.value)}
                   className="w-full bg-slate-950 border border-slate-800 rounded px-3 py-2 text-slate-200 focus:outline-none focus:border-emerald-500 font-mono"
                 >
-                  {proxies.map(px => (
-                    <option key={px.id} value={px.id}>{px.name} ({px.ipPort})</option>
+                  <option value="">Không dùng Proxy (Direct)</option>
+                    {proxies.filter(px => px.enabled).map(px => (
+                    <option key={px.id} value={px.id}>{px.name} ({px.protocol}://{px.host}:{px.port})</option>
                   ))}
                 </select>
               </div>

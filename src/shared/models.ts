@@ -22,10 +22,10 @@ export interface Profile {
   uid: string;
   displayName: string;
   avatarUrl: string;
-  groupId: string;
+  groupId: string | null;
   status: ProfileStatus;
   profilePath: string;
-  proxyId: string;
+  proxyId: string | null;
   expectedIp: string;
   currentIp: string;
   userAgent: string;
@@ -51,33 +51,112 @@ export interface Profile {
 }
 
 /**
- * Standardized Proxy Model
+ * Real Proxy Manager public models. Secrets never enter these types.
  */
+export type ProxyProtocol = 'http' | 'https' | 'socks4' | 'socks5';
+export type ProxyTestState =
+  | 'not_tested'
+  | 'testing'
+  | 'online'
+  | 'offline'
+  | 'timeout'
+  | 'auth_error'
+  | 'configuration_error';
+
 export interface Proxy {
   id: string;
-  protocol: 'HTTP' | 'HTTPS' | 'SOCKS5' | 'SOCKS4';
+  name: string;
+  protocol: ProxyProtocol;
   host: string;
   port: number;
-  username?: string;
-  password?: string;
-  passwordEncrypted?: string;
-  expectedIp: string;
-  currentIp: string;
-  latencyMs: number;
-  status: 'online' | 'slow' | 'offline' | 'checking' | 'unknown' | 'active' | 'error' | 'testing' | 'disabled';
-  lastCheckedAt: string;
+  enabled: boolean;
+  authRequired: boolean;
+  hasCredentials: boolean;
+  maskedUsername?: string;
+  credentialState?: 'none' | 'saved' | 'decrypt_error';
+  notes: string;
+  createdAt: string;
+  updatedAt: string;
+  assignedProfileCount: number;
+  testState: ProxyTestState;
+  publicIp?: string;
+  latencyMs?: number;
+  resolvedRule?: string;
+  lastCheckedAt?: string;
+  testError?: string;
 
-  // UI / Compatibility helper fields
-  name?: string;
+  // Compatibility helpers used by existing profile selectors.
   ipPort?: string;
-  ping?: number;
-  location?: string;
   assignedProfilesCount?: number;
   activeRunningProfilesCount?: number;
+  status?: 'online' | 'offline' | 'testing' | 'unknown';
+  currentIp?: string;
+  expectedIp?: string;
+  ping?: number;
   lastChecked?: string;
+  location?: string;
 }
 
 export type ProxyItem = Proxy;
+
+export interface ProxyCreateInput {
+  name: string;
+  protocol: ProxyProtocol;
+  host: string;
+  port: number;
+  enabled: boolean;
+  authRequired: boolean;
+  username?: string;
+  password?: string;
+  notes?: string;
+}
+
+export interface ProxyUpdateInput extends Partial<ProxyCreateInput> {
+  clearCredentials?: boolean;
+}
+
+export interface ProxyTestResult {
+  proxyId: string;
+  testState: ProxyTestState;
+  publicIp?: string;
+  latencyMs?: number;
+  resolvedRule?: string;
+  testError?: string;
+  checkedAt: string;
+}
+
+export interface ProfileProxyState {
+  profileId: string;
+  proxyId: string | null;
+  mode: 'direct' | 'proxy';
+  state: 'idle' | 'applying' | 'ready' | 'error';
+  resolvedRule?: string;
+  error?: string;
+  updatedAt: string;
+}
+
+export interface ProxyStorageInfo {
+  schemaVersion: number;
+  proxyCount: number;
+  assignedProfileCount: number;
+  secretFileExists: boolean;
+  encryptionAvailable: boolean;
+}
+
+export interface ProxyImportItem extends ProxyCreateInput {
+  sourceLine?: number;
+}
+
+export interface ProxyOneToOneAssignment {
+  profileId: string;
+  proxyId: string;
+}
+
+export interface ProxyOneToOneAssignmentResult {
+  assignments: ProxyOneToOneAssignment[];
+  profiles: Profile[];
+  states?: ProfileProxyState[];
+}
 
 /**
  * Standardized ModuleSetting Model
