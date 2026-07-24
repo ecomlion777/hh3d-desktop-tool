@@ -31,9 +31,20 @@ const BUILTIN_CATALOG = Object.freeze([
     defaultConfig: {}
   },
   {
-    code: 'diem_danh', label: 'Điểm Danh', description: 'Khung module Điểm Danh từ userscript HH3D.',
-    category: 'daily', version: '0.1.0', implementationState: 'planned', required: false,
-    defaultEnabled: false, triggers: ['manual', 'worker_start'], order: 100, sourceVersion: '5.4.8', defaultConfig: {}
+    code: 'diem_danh',
+    label: 'Điểm Danh',
+    description: 'Thực hiện Điểm Danh qua REST API bằng đúng persistent session và proxy của profile.',
+    category: 'daily',
+    version: '1.0.0',
+    implementationState: 'ready',
+    required: false,
+    defaultEnabled: false,
+    triggers: ['manual', 'worker_start'],
+    order: 100,
+    sourceVersion: '5.4.8',
+    defaultConfig: {
+      retryNonceOnce: true
+    }
   },
   {
     code: 'te_le', label: 'Tế Lễ', description: 'Khung module Tế Lễ từ userscript HH3D.',

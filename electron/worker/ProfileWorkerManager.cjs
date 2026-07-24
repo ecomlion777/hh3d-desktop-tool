@@ -419,11 +419,22 @@ class ProfileWorkerManager {
 
       // Phase 07 runs only reviewed, ready modules. Planned game modules stay
       // visible/configurable but cannot send requests until their handler is ported.
-      await this.moduleRunner.runEnabledForProfile(profileId, 'worker_start', {
+      const moduleResults = await this.moduleRunner.runEnabledForProfile(profileId, 'worker_start', {
         signal: holder.controller.signal,
         excludeCodes: ['session_check'],
         requestedCodes: holder.moduleCodes
       });
+
+      if (moduleResults.length > 0) {
+        const lastResult = moduleResults[moduleResults.length - 1];
+        await this.profileRepo.updateProfile(profileId, {
+          status: 'running',
+          currentActivity: lastResult.summary || 'Module Framework: Hoàn tất module đã bật',
+          lastActive: new Date().toISOString(),
+          nextRunTime: 'Đang chạy'
+        });
+        await this.broadcastProfilesChanged();
+      }
 
       await this.waitUntilStopped(profileId, holder.controller.signal);
     } catch (error) {
@@ -452,6 +463,11 @@ class ProfileWorkerManager {
         finalState = 'proxy_error';
         finalProfileStatus = 'proxy_error';
         finalActivity = 'Worker Core: Lỗi Proxy';
+        finalError = message;
+      } else if (message.includes('DIEM_DANH_') || message.includes('MODULE_')) {
+        finalState = 'error';
+        finalProfileStatus = 'stopped';
+        finalActivity = 'Module Framework: Lỗi module';
         finalError = message;
       } else {
         finalState = 'error';

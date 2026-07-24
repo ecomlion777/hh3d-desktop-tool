@@ -18,7 +18,8 @@
     "test:phase05b": "node tests/phase05-backend.test.cjs",
     "test:phase06": "node tests/phase06-worker-core.test.cjs",
     "test:phase06b": "node tests/phase06b-domain-config.test.cjs",
-    "test:phase07": "node tests/phase07-module-framework.test.cjs"
+    "test:phase07": "node tests/phase07-module-framework.test.cjs",
+    "test:phase08": "node tests/phase08-daily-checkin.test.cjs"
   },
   "dependencies": {
     "@tailwindcss/vite": "^4.1.14",

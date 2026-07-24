@@ -23,6 +23,7 @@ const ModuleSettingsRepository = require('./modules/ModuleSettingsRepository.cjs
 const ModuleRunner = require('./modules/ModuleRunner.cjs');
 const runSessionCheck = require('./modules/builtin/SessionCheckModule.cjs');
 const runFrameworkDiagnostic = require('./modules/builtin/FrameworkDiagnosticModule.cjs');
+const runDailyCheckin = require('./modules/builtin/DailyCheckinModule.cjs');
 const { MODULE_IPC_CHANNELS } = require('./modules/moduleConstants.cjs');
 
 const gotTheLock = app.requestSingleInstanceLock();
@@ -89,6 +90,7 @@ if (!gotTheLock) {
   const moduleRegistry = new ModuleRegistry();
   moduleRegistry.registerHandler('session_check', runSessionCheck);
   moduleRegistry.registerHandler('framework_diagnostic', runFrameworkDiagnostic);
+  moduleRegistry.registerHandler('diem_danh', runDailyCheckin);
   const moduleSettingsRepository = new ModuleSettingsRepository(db, profileRepo, moduleRegistry);
   const moduleRunner = new ModuleRunner({
     registry: moduleRegistry,
